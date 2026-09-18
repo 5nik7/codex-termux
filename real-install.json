@@ -1,0 +1,12 @@
+{
+  "host": "Linux x64",
+  "codex_version": "codex-cli 0.153.4",
+  "packages": "real official npm 0.153.4 and 0.153.4-linux-x64",
+  "install": "exact production package arguments; real npm, no global install",
+  "probes": "staged and relocated native execution passed",
+  "wrapper_selection": "real managed runtime --version passed",
+  "android": "not executed",
+  "credentials_used": false,
+  "wrapper_registry_check": "real registry JSON check passed",
+  "same_version_update": "idempotent no reinstall passed"
+}

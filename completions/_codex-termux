@@ -1,0 +1,74 @@
+#compdef codex-termux
+# Static completion: no Codex, proxy, registry, sidecar, or config execution.
+_codex_termux() {
+  emulate -L zsh
+  setopt localoptions noshwordsplit extendedglob
+  local cur=${words[CURRENT]} prev=${words[CURRENT-1]:-}
+  local action='' sub='' word label i=2
+  local -a choices
+  # Styled descriptions stay separate from inserted tokens; honor user styles.
+  local description_format='%B%d%b' configured_format
+  if [[ -z ${NO_COLOR+x} && ${TERM:-dumb} != dumb ]]; then
+    description_format='%F{cyan}%B%d%b%f'
+  fi
+  if zstyle -s ":completion:${curcontext}:descriptions" format configured_format; then
+    description_format=$configured_format
+  fi
+  while ((i < CURRENT)); do
+    word=${words[i]}
+    case $word in
+      --wrapper-color|--wrapper-banner|--wrapper-config) ((i+=2)); continue ;;
+      --wrapper-no-config|--wrapper-no-update|--wrapper-debug|--wrapper-dry-run) ((i++)); continue ;;
+    esac
+    action=$word; ((i++)); break
+  done
+  case $prev in
+    --wrapper-color|--wrapper-banner) [[ -z $action ]] || return 1; choices=('auto:Use terminal detection' 'always:Force styling' 'never:Disable styling'); label='display mode' ;;
+    --wrapper-config) [[ -z $action ]] || return 1; _files; return ;;
+    *)
+      if [[ -z $action ]]; then
+        label='codex (termux)'
+        choices=(
+          'run:Launch Codex' 'chatgpt:Launch without API-key variables'
+          'login:ChatGPT device login' 'login-api:Use OPENAI_API_KEY'
+          'status:Show authentication status' 'logout:Remove stored login'
+          'doctor:Run Codex doctor' 'test:Check DNS and HTTPS transport'
+          'setup:Prepare native Termux' 'manage:Check, update, or roll back'
+          'completion:Emit shell completion' 'help:Show wrapper help'
+          '--help:Show wrapper help' '--version:Show Codex version'
+          '--wrapper-version:Show wrapper version' '--wrapper-info:Inspect local runtime'
+          '--wrapper-dry-run:Describe launch without running it'
+          '--wrapper-no-update:Disable automatic update work'
+          '--wrapper-color:Select color mode' '--wrapper-banner:Select header mode'
+          '--wrapper-config:Read literal configuration' '--wrapper-no-config:Ignore configuration'
+          '--wrapper-debug:Show fixed diagnostic events')
+      elif [[ $action == manage ]]; then
+        if ((i == CURRENT)); then
+          label='maintenance'; choices=('check:Inspect local prerequisites' 'update:Check or install Codex' 'rollback:Switch to the previous runtime' 'config:Show settings or example' 'help:Show help')
+        else
+          sub=${words[i]}; label='maintenance option'
+          case $sub in
+            check) choices=('--json:Machine-readable local report') ;;
+            update) [[ $prev != --version ]] || return 1; choices=('--check:Check only' '--json:JSON for --check' '--yes:Authorize installation' '--version:Select exact stable version') ;;
+            rollback) choices=('--yes:Authorize rollback') ;;
+            config) ((i+1 == CURRENT)) || return 1; choices=('show:Effective nonsecret settings' 'example:Literal configuration template') ;;
+          esac
+        fi
+      elif [[ $action == completion ]] && ((i == CURRENT)); then
+        label='shell'; choices=('bash:Bash programmable completion' 'zsh:Zsh completion with descriptions')
+      elif [[ $action == setup ]]; then
+        [[ $prev != --version ]] || return 1
+        label='setup option'; choices=('--yes:Authorize package installation' '--version:Select exact stable version')
+      elif [[ $action == --wrapper-info ]]; then
+        label='output'; choices=('--json:Machine-readable local report')
+      fi ;;
+  esac
+  (( ${#choices} )) || return 1
+  _describe -t codex-termux-options "$label" choices -X "${description_format//\%d/$label}"
+}
+# Works both as an autoloaded _codex-termux file and when sourced after compinit.
+if [[ $ZSH_EVAL_CONTEXT == *:file ]]; then
+  if (( $+functions[compdef] )); then compdef _codex_termux codex-termux; fi
+else
+  _codex_termux "$@"
+fi
