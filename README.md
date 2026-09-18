@@ -1,84 +1,140 @@
-# codex-termux 0.2.0
+# codex-termux 0.3.0
 
-A standalone Bash wrapper for running Codex's Linux npm build in **native
-Termux**, with Android DNS handled by native Node.js. No proot or persistent
-proxy service. This is a candidate update to the supplied, working 0.1.0 wrapper.
+Run Codex's Linux npm build in **native Termux**, with Android DNS handled by
+native Node.js through a temporary loopback proxy. No proot or persistent service.
 
-The original `chatgpt` launch behavior is preserved. Updates use a private,
-versioned npm installation; the existing global installation stays intact.
-No credentials, Codex configuration, shell startup files, model selection, or
-sandbox/approval settings are rewritten.
+This release adds a package installer/updater/uninstaller, a manual, and richer
+help colors. The existing Codex launch, login, proxy, and npm-runtime management
+remain compatible. The owner reported successful use of 0.2.0 on their phone;
+0.3.0's new package operations have separate [validation](VALIDATION.md).
 
-## Try it alongside the working wrapper
+## Install or update the wrapper package
 
-Extract the ZIP inside Termux's private home, then enter its directory:
-
-```bash
-unzip codex-termux-0.2.0.zip
-cd codex-termux-0.2.0
-
-bash bin/codex-termux --help
-bash bin/codex-termux --wrapper-version
-bash bin/codex-termux --wrapper-info --json
-bash bin/codex-termux run --version
-bash bin/codex-termux --wrapper-no-update test
-```
-
-Use the same launch options that already work on your phone:
+From a built checkout or the source ZIP extracted inside Termux's private home:
 
 ```bash
-bash bin/codex-termux --wrapper-no-update chatgpt \
-  --sandbox danger-full-access \
-  --ask-for-approval on-request \
-  -c 'approvals_reviewer="auto_review"'
-```
-
-Those flags are your explicit selection. `danger-full-access` disables Codex's
-OS sandbox; approval review does not provide that sandbox. The wrapper neither
-adds these flags nor substitutes a fake `bwrap`. Android sandbox support is
-unchanged. Omit `--wrapper-no-update` after checking the candidate to enable the
-cached update feature.
-
-The candidate can use your existing login. A new login is unnecessary if it
-already works. Native Termux interactive use and authentication have **not**
-been executed by the author of this candidate; see [VALIDATION.md](VALIDATION.md).
-
-## Install the wrapper after trying it
-
-Only `bin/codex-termux` is required at runtime; the JavaScript helpers and shell
-completions are embedded. Keep the source directory for documentation and tests.
-
-For a conventional existing installation at `$PREFIX/bin/codex-termux`, this
-backs up the existing entry and atomically replaces that directory entry. A
-symlink target is not overwritten:
-
-```bash
-target="$PREFIX/bin/codex-termux"
-backup_dir="$(mktemp -d "$HOME/codex-termux-wrapper-backup.XXXXXXXX")"
-if [ -e "$target" ] || [ -L "$target" ]; then
-  cp -P -- "$target" "$backup_dir/codex-termux"
-fi
-staged="$(mktemp "$PREFIX/bin/.codex-termux.XXXXXXXX")"
-install -m 755 bin/codex-termux "$staged" && mv -T -- "$staged" "$target"
+bash install.sh --source . --dry-run
+bash install.sh --source .
 hash -r
-printf 'Wrapper backup: %s\n' "$backup_dir"
+codex-termux --wrapper-version
+codex-termux --help
+man codex-termux
 ```
 
-First check `type -a codex-termux` if your existing wrapper is installed elsewhere.
-Use its actual destination instead of installing a second competing command.
-Keep this extracted release and the printed backup directory until native checks
-pass. Restoring the backed-up entry restores the old wrapper; it will continue
-to use the untouched global Codex installation.
+The installer displays the version and paths, then asks before changes. It
+installs into `$PREFIX` by default. Check `type -a codex-termux` first if your
+old wrapper lives outside `$PREFIX/bin`; this installer does not replace
+arbitrary commands elsewhere on PATH. An existing recognized 0.1/0.2 standalone
+wrapper at the destination is backed up before adoption, without executing it.
+
+After a release is **published with its assets**, download and inspect its
+installer before executing it:
+
+```bash
+installer_dir="$(mktemp -d "${TMPDIR:-$PREFIX/tmp}/codex-termux-install.XXXXXXXX")"
+curl -fL --proto '=https' --proto-redir '=https' \
+  -o "$installer_dir/install.sh" \
+  https://github.com/5nik7/codex-termux/releases/latest/download/install.sh
+# Inspect the downloaded script if desired, then:
+bash "$installer_dir/install.sh"
+```
+
+The piped forms are also supported. They run code from this repository's
+published release immediately; prompts still read the controlling terminal:
+
+```bash
+curl -fsSL https://github.com/5nik7/codex-termux/releases/latest/download/install.sh | bash
+# Or:
+wget -qO- https://github.com/5nik7/codex-termux/releases/latest/download/install.sh | bash
+```
+
+A pushed source commit alone does not make these release URLs available. Local
+installation works before the first release. Afterward:
+
+```bash
+codex-termux manage self-update --check   # wrapper version comparison only
+codex-termux manage self-update          # confirm and update every package file
+codex-termux manage self-update --dry-run
+codex-termux manage self-update --version 0.3.0
+codex-termux manage self-update --repair  # repair missing links at the same version
+```
+
+**`manage self-update` updates the wrapper; `manage update` updates Codex npm.**
+Wrapper updates are explicit, so launch adds no new network or update check.
+Same version: message and exit with nothing replaced. Newer version: validate,
+confirm, and switch all package files. Older version: no downgrade. Stable
+numeric `X.Y.Z` releases are supported; prereleases are not selected.
+
+A normal wrapper package installation uses only Bash/coreutils and curl or wget.
+It does not need Node/npm/Python, install Codex, log in, or change shell startup.
+For a fresh device, follow it with `codex-termux setup`, as below.
+
+### Installed files and safeguards
+
+| Location under `$PREFIX` | Purpose |
+| --- | --- |
+| `bin/codex-termux` | Command |
+| `share/bash-completion/completions/codex-termux` | Bash completion |
+| `share/zsh/site-functions/_codex-termux` | Zsh completion |
+| `share/man/man1/codex-termux.1` | Manual |
+| `share/doc/codex-termux/` | README, changelog, example config, license |
+| `libexec/codex-termux/` | Private package payloads, current pointer, backups |
+
+Public entries are symlinks through one `current` pointer. Normal upgrades
+switch the command, completion, and manual together after full validation.
+Initial adoption, missing-link repair, and uninstall affect several entries;
+backups allow recovery if one of those operations fails. Existing files are
+copied without following symlinks. Changed managed entries, symlink destination
+parents, special files, unknown versions, and uncertain ownership are refused.
+
+Remote downloads use version-pinned GitHub asset URLs after resolving the latest
+stable version. A strict SHA-256 manifest covers every allowed payload file.
+No downloaded archive is extracted and no payload is executed to discover its
+version. Checksums plus HTTPS rely on the repository/release publisher; they
+are **not independent release signing**. Existing same-user configuration and
+state are trusted, not defended against hostile concurrent replacement.
+
+An ordinary failed operation restores its original public entries. A forced
+kill can leave a lock and `pending` record. Retain them until you have confirmed
+no package operation is running; then remove only that empty package lock and
+run `bash install.sh --recover` from a reviewed checkout/download. Never force
+through a live lock. Recovery refuses conflicting edits and retains backups.
+The lock is `$PREFIX/libexec/.codex-termux-package.lock`; package backups are
+under `$PREFIX/libexec/codex-termux/backups/`.
+
+### Uninstall
+
+```bash
+codex-termux manage uninstall --dry-run
+codex-termux manage uninstall
+# Equivalent from the source checkout:
+bash uninstall.sh
+```
+
+Or run the published uninstaller:
+
+```bash
+curl -fsSL https://github.com/5nik7/codex-termux/releases/latest/download/uninstall.sh | bash
+# wget -qO- with the same URL is also supported.
+```
+
+The confirmation defaults to **No**. Uninstall removes the owned command,
+completion, manual, and documentation links. It preserves credentials, wrapper
+configuration, shell startup, Codex npm runtimes, old package payloads, and
+recovery copies. A pre-existing unmanaged standalone wrapper is left alone.
+There is no purge or automatic history deletion. Add `--yes` only when you
+explicitly want unattended installation/removal. `--prefix DIR` selects an
+existing owned private prefix; `--color auto|always|never` controls package UI.
 
 ## Fresh Termux setup
 
-With the wrapper downloaded to Termux's private storage:
+After installing the wrapper package:
 
 ```bash
-bash bin/codex-termux setup
-bash bin/codex-termux test
-bash bin/codex-termux login
-bash bin/codex-termux chatgpt
+codex-termux setup
+codex-termux test
+codex-termux login
+codex-termux chatgpt
 ```
 
 `setup` checks native ARM64/x64, Node.js, npm, curl, Git, a CA certificate bundle,
@@ -102,7 +158,7 @@ Codex, or rewrite PATH/startup files. If repositories or TLS are broken, it
 stops with an error. Termux package operations are not rolled back by the npm
 runtime rollback feature.
 
-## Updating Codex
+## Updating the Codex npm runtime
 
 ```bash
 codex-termux manage update --check
@@ -176,7 +232,7 @@ Managed runtimes live at
 runtime can occupy hundreds of MiB. Installation needs temporary download/cache
 space as well as the new runtime. Temporary npm caches are deleted after a
 completed attempt; previously installed runtimes are retained to protect rollback
-and still-running sessions. There is **no automatic runtime deletion** in 0.2.0.
+and still-running sessions. There is **no automatic runtime deletion**.
 
 `manage rollback` validates the previous executable and swaps selections. After
 the first managed install it can return to the original global npm launcher, if
@@ -200,7 +256,8 @@ lock to force concurrent updates.
 
 Generation and completion do not run Codex, launch a proxy, contact a registry,
 or read credentials. Completion covers wrapper commands and options; it does not
-guess the evolving Codex argument grammar after `run` or `chatgpt`.
+guess the evolving Codex argument grammar after `run` or `chatgpt`. Both shells
+include `manage self-update`/`uninstall` and their package options.
 
 For Zsh, after your existing `compinit`, try it in the current shell:
 
@@ -223,13 +280,21 @@ heading uses cyan, with styled descriptions and plain inserted tokens. Existing
 Zsh description styles take precedence; `NO_COLOR` disables the default cyan.
 The completion function does not change global `zstyle` settings.
 
-For persistent Zsh autoloading, put `_codex-termux` in a trusted directory already
-on your `fpath` **before** `compinit`. The wrapper never edits `.zshrc` for you.
+The package installs `_codex-termux` into `$PREFIX/share/zsh/site-functions`.
+Use the existing `fpath`/`compinit` setup if that directory is already registered.
+For immediate use, source the installed file after `compinit`:
+
+```zsh
+source "$PREFIX/share/zsh/site-functions/_codex-termux"
+```
+
+If you maintain a custom `fpath`, include that trusted directory before `compinit`.
+The installer never edits `.zshrc`, resets your styles, or deletes completion caches.
 
 For Bash:
 
 ```bash
-source ./completions/codex-termux.bash
+source "$PREFIX/share/bash-completion/completions/codex-termux"
 # Or:
 source <(codex-termux completion bash)
 ```
@@ -237,13 +302,15 @@ source <(codex-termux completion bash)
 ## Output and configuration
 
 `--help` gets a wide ASCII logo or a compact phone-sized `codex (termux)` header.
-Width comes from `COLUMNS`, then the terminal. Color/header default to terminal
+Commands are green, options yellow, headings magenta, descriptions white, and
+the header cyan. Width comes from `COLUMNS`, then the terminal. Color/header
+default to terminal
 output only; machine output and forwarded Codex output are never decorated.
 
 ```bash
 codex-termux --wrapper-color always --wrapper-banner always --help
 codex-termux --wrapper-color never --wrapper-banner never --help
-codex-termux --wrapper-version    # wrapper 0.2.0, no Node process
+codex-termux --wrapper-version    # wrapper 0.3.0, no Node process
 codex-termux --version            # original Codex --version behavior
 codex-termux --wrapper-info --json
 codex-termux --wrapper-dry-run chatgpt --sandbox danger-full-access
@@ -319,10 +386,9 @@ passes `OPENAI_API_KEY` on stdin to Codex, without including the key in argv.
 
 ```bash
 python3 tools/build.py
-bash -n bin/codex-termux
-node --check src/runtime.cjs
-node --test tests/runtime.test.cjs
-python3 -B tests/test_wrapper.py
+python3 -B tools/verify.py
+python3 -B tools/release.py --tag v0.3.0
+# Optional, measured separately from correctness checks:
 python3 -B tools/bench.py
 ```
 
@@ -332,8 +398,17 @@ servers. Zsh acceptance includes actual Tab completion in a test-owned terminal.
 If Zsh is missing its two shell tests are explicitly skipped, not reported as
 verified. The Node helper tests require a Node version with `node:test`.
 
-Keep `src/`, `completions/`, and the generated `bin/codex-termux` synchronized.
-[AGENTS.md](AGENTS.md) describes the compatibility and safety rules.
+`VERSION` is the wrapper package version. Build after changing source, completion,
+manual templates, README, CHANGELOG, or any shipped asset. `build.py --check`
+verifies generated files without modifying them. `PACKAGE-SHA256SUMS` uses the
+flat release asset names; it is consumed by the package tools. Release output
+is ignored under `dist/` and is never added to Git.
+
+[AGENTS.md](AGENTS.md) describes the compatibility rules.
+[RELEASING.md](RELEASING.md) gives the branch, review, tag, and draft-release steps.
+[VALIDATION.md](VALIDATION.md) separates local evidence from phone checks.
+The source ZIP/tar includes development files; the installer downloads only the
+small runtime/manual/completion payload, without Git, Python, or Node.
 
 References: [npm install options](https://docs.npmjs.com/cli/v12/commands/npm-install/),
 [npm package aliases](https://docs.npmjs.com/cli/v12/using-npm/package-spec/),

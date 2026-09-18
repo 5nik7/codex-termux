@@ -3,7 +3,7 @@
 set -Eeuo pipefail
 
 readonly PROGRAM=${0##*/}
-readonly WRAPPER_VERSION=0.2.0
+readonly WRAPPER_VERSION=@@VERSION@@
 runtime_dir='' proxy_pid='' child_pid='' proxy_url='' node_bin='' ca_bundle=''
 codex_kind='' codex_launcher='' installed_version='' selected_runtime=system previous_runtime=-
 color=auto banner=auto auto_update=ask update_interval=86400 proxy_connect_timeout=10000
@@ -11,7 +11,7 @@ proxy_allow='' codex_bin='' configured_ca='' debug=0 no_update=0 config_disabled
 config_file='' data_dir='' cache_dir='' arch='' pending_cache='' original_action=''
 config_explicit=0
 declare -a codex_command=() prefix_args=()
-reset='' bold='' accent='' muted=''
+reset='' bold='' accent='' muted='' command_color='' option_color='' description_color='' heading_color=''
 
 say() { printf '%s\n' "$*"; }
 emit() { local row; while IFS= read -r row; do printf '%s\n' "$row"; done; }
@@ -80,6 +80,8 @@ configure() {
   ((no_update)) && auto_update=off
   if [[ $color == always || ( $color == auto && -t 1 && -z ${NO_COLOR+x} && ${TERM:-dumb} != dumb ) ]]; then
     reset=$'\e[0m'; bold=$'\e[1m'; accent=$'\e[1;36m'; muted=$'\e[2m'
+    command_color=$'\e[1;32m'; option_color=$'\e[1;33m'
+    description_color=$'\e[37m'; heading_color=$'\e[1;35m'
   fi
 }
 
@@ -104,44 +106,52 @@ header() {
     printf '%scodex\n(termux)%s\n\n' "$accent" "$reset"
   fi
 }
+help_row() {
+  local style=$1 label=$2 description=$3
+  printf '  %s%-27s%s %s%s%s\n' "$style" "$label" "$reset" "$description_color" "$description" "$reset"
+}
 usage() {
   header
-  printf '%sUsage%s\n' "$bold" "$reset"
-  say "  $PROGRAM [CODEX_ARGUMENTS...]"
-  say "  $PROGRAM chatgpt [CODEX_ARGUMENTS...]"
-  say "  $PROGRAM setup [--yes] [--version X.Y.Z]"
-  say "  $PROGRAM manage update [--check | --version X.Y.Z] [--yes]"
-  say "  $PROGRAM completion bash|zsh"
-  printf '\n%sCommands%s\n' "$bold" "$reset"
-  say '  run        Launch Codex (default).'
-  say '  chatgpt    Launch without API-key environment variables.'
-  say '  login      ChatGPT device login; extra args go to Codex login.'
-  say '  login-api  Read OPENAI_API_KEY from the environment.'
-  say '  status     Show Codex authentication status.'
-  say '  logout     Remove stored Codex credentials.'
-  say '  doctor     Codex doctor --all, or supplied options.'
-  say '  test       DNS, proxy/TLS, then Codex doctor.'
-  say '  setup      Check/prepare a fresh Termux installation.'
-  say '  manage     Wrapper checks, updates, rollback, configuration.'
-  say '  completion Emit a static Bash or Zsh completion script.'
-  printf '\n%sWrapper options%s (before the command)\n' "$bold" "$reset"
-  say '  -h, --help                 This help.'
-  say '  --wrapper-version          Wrapper version; no Node startup.'
-  say '  --wrapper-info [--json]    Local runtime information.'
-  say '  --wrapper-dry-run          Show launch mode and argument count.'
-  say '  --wrapper-no-update        No automatic check or prompt.'
-  say '  --wrapper-color MODE       auto | always | never'
-  say '  --wrapper-banner MODE      auto | always | never'
-  say '  --wrapper-config PATH      Literal key=value configuration.'
-  say '  --wrapper-no-config        Ignore the configuration file.'
-  say '  --wrapper-debug            Fixed diagnostic events on stderr.'
-  printf '\n%sMaintenance%s\n' "$bold" "$reset"
-  say "  $PROGRAM manage check [--json]"
-  say "  $PROGRAM manage update --check [--json]"
-  say "  $PROGRAM manage update [--yes] [--version X.Y.Z]"
-  say "  $PROGRAM manage rollback [--yes]"
-  say "  $PROGRAM manage config show|example"
-  printf '\n%sNotes%s\n' "$bold" "$reset"
+  printf '%sUsage%s\n' "$heading_color" "$reset"
+  printf '  %s%s%s %s[CODEX_ARGUMENTS...]%s\n' "$command_color" "$PROGRAM" "$reset" "$option_color" "$reset"
+  printf '  %s%s chatgpt%s [CODEX_ARGUMENTS...]\n' "$command_color" "$PROGRAM" "$reset"
+  printf '  %s%s completion%s bash|zsh\n' "$command_color" "$PROGRAM" "$reset"
+  printf '\n%sCommands%s\n' "$heading_color" "$reset"
+  help_row "$command_color" run 'Launch Codex (default).'
+  help_row "$command_color" chatgpt 'Launch without API-key variables.'
+  help_row "$command_color" login 'ChatGPT device login by default.'
+  help_row "$command_color" login-api 'Use OPENAI_API_KEY on stdin.'
+  help_row "$command_color" status 'Show Codex authentication status.'
+  help_row "$command_color" logout 'Remove stored Codex credentials.'
+  help_row "$command_color" doctor 'Codex doctor --all, or supplied options.'
+  help_row "$command_color" test 'Check DNS, proxy/TLS, and Doctor.'
+  help_row "$command_color" 'setup [--yes] [--version V]' 'Prepare fresh Termux dependencies.'
+  help_row "$command_color" manage 'Check, update, roll back, or uninstall.'
+  help_row "$command_color" completion 'Emit Bash or Zsh completion.'
+  printf '\n%sWrapper options%s (before the command)\n' "$heading_color" "$reset"
+  help_row "$option_color" '-h, --help' 'This help.'
+  help_row "$option_color" '--wrapper-version' 'Wrapper version; no Node startup.'
+  help_row "$option_color" '--wrapper-info [--json]' 'Local runtime information.'
+  help_row "$option_color" '--wrapper-dry-run' 'Describe run/chatgpt; launch nothing.'
+  help_row "$option_color" '--wrapper-no-update' 'Disable automatic npm checks/prompts.'
+  help_row "$option_color" '--wrapper-color MODE' 'auto | always | never'
+  help_row "$option_color" '--wrapper-banner MODE' 'auto | always | never'
+  help_row "$option_color" '--wrapper-config PATH' 'Literal key=value configuration.'
+  help_row "$option_color" '--wrapper-no-config' 'Ignore the configuration file.'
+  help_row "$option_color" '--wrapper-debug' 'Fixed diagnostic events on stderr.'
+  printf '\n%sMaintenance%s\n' "$heading_color" "$reset"
+  help_row "$command_color" 'manage check [--json]' 'Local prerequisite checks.'
+  help_row "$command_color" 'manage update [--check]' 'Update the Codex npm runtime.'
+  help_row "$option_color" '  --check [--json]' 'Check npm updates without installing.'
+  help_row "$option_color" '  [--yes] [--version X.Y.Z]' 'Authorize/pin npm installation.'
+  help_row "$command_color" 'manage rollback' 'Restore the previous npm runtime.'
+  help_row "$command_color" 'manage self-update [--check]' 'Update this wrapper package.'
+  help_row "$command_color" 'manage uninstall [--dry-run]' 'Remove wrapper package files.'
+  help_row "$option_color" '  --help' 'Show the package tool options.'
+  help_row "$command_color" 'manage config show|example' 'Inspect wrapper configuration.'
+  printf '\n%sManual%s\n' "$heading_color" "$reset"
+  help_row "$command_color" 'man codex-termux' 'Commands, package tools, and examples.'
+  printf '\n%sNotes%s\n' "$heading_color" "$reset"
   say "  --version remains Codex's version (not the wrapper)."
   say '  Unknown commands/options pass through unchanged.'
   say '  Use run COMMAND to bypass wrapper command names.'
@@ -276,7 +286,7 @@ info() {
 maintenance() {
   local action=${1:-help} requested=latest yes=0 check=0 json=0 option
   (($#)) && shift
-  if [[ $# == 1 && ( $1 == --help || $1 == -h ) ]]; then usage; return; fi
+  if [[ $action != self-update && $action != uninstall && $# == 1 && ( $1 == --help || $1 == -h ) ]]; then usage; return; fi
   case $action in
     help|-h|--help) (($# == 0)) || usage_error 'unexpected maintenance arguments'; usage; return ;;
     config)
@@ -292,6 +302,8 @@ maintenance() {
     check)
       (($# == 0)) || [[ $# == 1 && $1 == --json ]] || usage_error 'check accepts only --json'
       info "${1:+json}"; return ;;
+    self-update|uninstall)
+      package_tool "$action" "$@"; return ;;
     update|rollback) ;;
     *) usage_error 'unknown manage command' ;;
   esac
@@ -344,6 +356,28 @@ maintenance() {
   ((yes)) || confirm "Install and validate Codex $requested in a separate runtime?" || { note 'unchanged'; return 0; }
   note "staging Codex $requested; the current runtime stays available"
   runtime install "$data_dir" "$arch" "$requested" "$npm_bin"
+}
+package_tool() {
+  local operation=$1 helper own folder arg force_remote=1 explicit_color=0
+  shift
+  for arg in "$@"; do [[ $arg != --color ]] || explicit_color=1; done
+  ((explicit_color)) || set -- --color "$color" "$@"
+  own=$(readlink -f -- "${BASH_SOURCE[0]}") || die 'cannot locate the wrapper package helper'
+  folder=${own%/*}
+  if [[ $operation == uninstall ]]; then helper=uninstall.sh; else helper=install.sh; fi
+  if [[ -f $folder/$helper ]]; then
+    bash "$folder/$helper" "$@"
+  elif [[ -f $folder/../$helper ]]; then
+    # A development checkout can explicitly install its built source with
+    # --source. Self-update itself always targets published releases.
+    for arg in "$@"; do
+      case $arg in --source|--remote|--version|--recover) force_remote=0 ;; esac
+    done
+    if [[ $operation == self-update ]] && ((force_remote)); then bash "$folder/../$helper" --remote "$@"
+    else bash "$folder/../$helper" "$@"; fi
+  else
+    die 'package helper is unavailable; use the repository install.sh/uninstall.sh'
+  fi
 }
 setup() {
   local yes=0 requested='' option npm_bin

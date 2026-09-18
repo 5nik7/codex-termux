@@ -86,7 +86,7 @@ function getJSON(url, timeout = 12000) {
       if (error) { req.destroy(); reject(error); } else resolve(value);
       agent.destroy();
     };
-    const req = https.get(url, { agent, headers: { Accept: 'application/json', 'User-Agent': 'codex-termux/0.2.0' } }, res => {
+    const req = https.get(url, { agent, headers: { Accept: 'application/json', 'User-Agent': 'codex-termux/@@VERSION@@' } }, res => {
       if (res.statusCode !== 200) { res.resume(); finish(new Error(`registry returned HTTP ${res.statusCode}`)); return; }
       res.on('data', chunk => {
         total += chunk.length;

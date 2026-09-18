@@ -54,7 +54,9 @@ class WrapperTests(unittest.TestCase):
         (self.prefix / 'etc/tls/cert.pem').write_text('fixture-ca')
         self.temp = self.root / 'tmp'; self.temp.mkdir()
         self.record = self.root / 'record.json'
-        self.fake = self.prefix / 'bin/codex'; self.fake.write_text(FAKE); self.fake.chmod(0o755)
+        self.fake = self.prefix / 'bin/codex'
+        self.fake.write_text(FAKE.replace('#!/usr/bin/env node', '#!' + NODE, 1))
+        self.fake.chmod(0o755)
         self.env = {
             'PATH': f'{self.prefix}/bin:{Path(NODE).parent}:/usr/bin:/bin',
             'HOME': str(self.home), 'PREFIX': str(self.prefix), 'TERMUX_VERSION': 'test-fixture',
@@ -159,7 +161,7 @@ class WrapperTests(unittest.TestCase):
     def test_invalid_override_never_triggers_setup_package_repair(self):
         for override in (self.root / 'absent', self.prefix / 'bin/broken'):
             if override.name == 'broken':
-                override.write_text('#!/bin/sh\nexit 42\n'); override.chmod(0o755)
+                override.write_text('#!' + BASH + '\nexit 42\n'); override.chmod(0o755)
             env = {**self.env, 'CODEX_TERMUX_CODEX_BIN': str(override)}
             result = self.run_wrapper('setup', '--yes', env=env)
             self.assertEqual(result.returncode, 1)
@@ -224,7 +226,7 @@ printf 'fixture-ca' >"$PREFIX/etc/tls/cert.pem"
         result = self.run_wrapper('--wrapper-color', 'always', '--wrapper-banner', 'always', '--wrapper-info', '--json')
         self.assert_ok(result)
         report = json.loads(result.stdout)
-        self.assertEqual(report['wrapper_version'], '0.2.0')
+        self.assertEqual(report['wrapper_version'], (ROOT / 'VERSION').read_text().strip())
         self.assertEqual(report['codex_version'], '0.153.4')
         self.assertNotIn('\x1b', result.stdout)
         self.assertEqual(result.stderr, '')
@@ -237,6 +239,13 @@ printf 'fixture-ca' >"$PREFIX/etc/tls/cert.pem"
             header = result.stdout.split('\n\n')[0]
             self.assertTrue(all(len(line) <= width for line in header.splitlines()))
             self.assertNotIn('\x1b', result.stdout)
+
+    def test_help_uses_separate_command_option_and_description_colors(self):
+        result = self.run_wrapper('--wrapper-color', 'always', '--help')
+        self.assert_ok(result)
+        for style in ['\x1b[1;32m', '\x1b[1;33m', '\x1b[37m', '\x1b[1;35m']:
+            self.assertIn(style, result.stdout)
+        self.assertFalse(self.record.exists())
 
     def test_term_signal_cleans_proxy_and_direct_child(self):
         ready = self.root / 'ready'
@@ -305,12 +314,18 @@ COMP_WORDS=(codex-termux manage up); COMP_CWORD=2
 _codex_termux_complete; printf '%s\n' "${COMPREPLY[@]}"
 COMP_WORDS=(codex-termux completion z); COMP_CWORD=2
 _codex_termux_complete; printf '%s\n' "${COMPREPLY[@]}"
+COMP_WORDS=(codex-termux manage self); COMP_CWORD=2
+_codex_termux_complete; printf '%s\n' "${COMPREPLY[@]}"
+COMP_WORDS=(codex-termux manage self-update --ch); COMP_CWORD=3
+_codex_termux_complete; printf '%s\n' "${COMPREPLY[@]}"
+COMP_WORDS=(codex-termux manage uninstall --color ne); COMP_CWORD=4
+_codex_termux_complete; printf '%s\n' "${COMPREPLY[@]}"
 COMP_WORDS=(codex-termux chatgpt manage up); COMP_CWORD=3
 _codex_termux_complete; printf 'passed:%s\n' "${#COMPREPLY[@]}"
 '''
         result = subprocess.run([BASH, '--noprofile', '--norc', '-c', script], env={**self.env, 'COMPLETION': str(ROOT / 'completions/codex-termux.bash')}, capture_output=True, text=True, timeout=5)
         self.assertEqual(result.returncode, 0, result.stderr)
-        self.assertEqual(result.stdout, 'update\nzsh\npassed:0\n')
+        self.assertEqual(result.stdout, 'update\nzsh\nself-update\n--check\nnever\npassed:0\n')
 
     def test_cached_update_prompt_decline_preserves_launch_and_no_update_suppresses_it(self):
         cache = self.home / '.cache/codex-termux'
@@ -365,11 +380,16 @@ source "$COMPLETION"
 _describe() { local array=$4; print -rl -- "${(@P)array}"; }
 words=(codex-termux manage up); CURRENT=3; _codex_termux
 words=(codex-termux completion z); CURRENT=3; _codex_termux
+words=(codex-termux manage self-update --ch); CURRENT=4; _codex_termux
+words=(codex-termux manage uninstall --dry); CURRENT=4; _codex_termux
 '''
         result = subprocess.run([ZSH, '-f', '-c', script], env={**self.env, 'ZDOTDIR': str(self.home), 'COMPLETION': str(ROOT / 'completions/_codex-termux')}, capture_output=True, text=True, timeout=10)
         self.assertEqual(result.returncode, 0, result.stderr)
-        self.assertIn('update:Check or install Codex', result.stdout)
+        self.assertIn('update:Check or install Codex npm runtime', result.stdout)
         self.assertIn('zsh:Zsh completion with descriptions', result.stdout)
+        self.assertIn('self-update:Update wrapper, completion and manual', result.stdout)
+        self.assertIn('--check:Compare wrapper versions only', result.stdout)
+        self.assertIn('--dry-run:Preview removal', result.stdout)
 
     @unittest.skipUnless(ZSH, 'Zsh is not installed')
     def test_zsh_actual_tab_completion_in_owned_pty(self):

@@ -1,5 +1,29 @@
 # Changelog
 
+## 0.3.0 — 2026-09-18
+
+- Color command names, options, section headings, descriptions, and the existing
+  responsive help header separately; retain plain redirected output and NO_COLOR.
+- Add a full `codex-termux(1)` manual and install Bash/Zsh completion together.
+- Add standalone `install.sh` and `uninstall.sh`, supporting local source,
+  published GitHub releases, curl/wget pipelines, and terminal confirmation.
+- Add `manage self-update` and `manage uninstall`, separate from Codex npm
+  `manage update` and `manage rollback`; extend static completion and help.
+- Compare stable wrapper versions, skip equal/older offers, pin all downloaded
+  assets to one version, and validate a strict package checksum manifest.
+- Stage complete package payloads, retain pre-existing entries, switch normal
+  updates through one pointer, and recover interrupted operations explicitly.
+- Refuse uncertain ownership, special files, changed managed entries, and
+  conflicting operations. Uninstall preserves auth/config, npm runtimes, and
+  package recovery history. Package operations do not need Node/npm/Python.
+- Add reproducible source/release packaging, offline lifecycle regressions,
+  CI, a draft-release workflow, and a step-by-step publishing guide.
+- Preserve the native Node DNS/proxy and Codex runtime-management behavior.
+
+Release downloads become usable only after the owner publishes the release and
+its assets. Local Linux verification does not establish native Android package
+installation behavior; see [VALIDATION.md](VALIDATION.md).
+
 ## 0.2.0 — candidate, 2026-09-18
 
 - Add explicit update checks, exact-version staged installation, and validated

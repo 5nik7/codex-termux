@@ -3,8 +3,9 @@
 Preserve the working native Termux DNS/proxy solution and existing CLI behavior.
 This standalone wrapper is separate from the dots CLI and its Go roadmap.
 
-- Edit `src/frontend.sh`, `src/runtime.cjs`, and `completions/`; regenerate the
-  standalone `bin/codex-termux` with `python3 tools/build.py`.
+- Edit `src/frontend.sh`, `src/runtime.cjs`, `src/package.sh`, `completions/`, and
+  `man/codex-termux.1.in`; regenerate with `python3 tools/build.py`. `VERSION` is
+  authoritative. Never edit generated bin/install/uninstall/man files directly.
 - Keep startup independent of npm/network discovery. Help/wrapper version must
   not start Node. Background update checks must not block launching Codex.
 - `--version` belongs to Codex. Wrapper flags use `--wrapper-*` before the
@@ -19,6 +20,16 @@ This standalone wrapper is separate from the dots CLI and its Go roadmap.
   existing global npm installation or silently delete old runtimes.
 - Setup/update installation requires confirmation or the caller's explicit
   `--yes`. Cached checks never authorize installation.
+- `manage update`/`rollback` manage npm runtimes. `manage self-update`/`uninstall`
+  manage the wrapper package. Keep these separate and preserve CLI passthrough.
+- Package tools must work without Node/npm/Python and when piped into Bash.
+  Confirm via /dev/tty, never by consuming the script's standard input. Keep
+  HTTPS validation, version-pinned URLs, exact allowed assets, and checksums.
+- Back up existing entries, never follow destination symlinks, and switch normal
+  upgrades with one current pointer. Refuse modified ownership and surviving
+  locks; preserve pending recovery state rather than guessing it is stale.
+- Uninstall only owned public entries. Preserve credentials/config, npm runtimes,
+  shell startup, package snapshots, and old payloads; no implicit purge.
 - Configuration is literal data, never sourced/evaluated. Completion must stay
   static, local, and free of Codex/network execution.
 - Only test in owned roots. Tests may use fake credentials, never real accounts.
@@ -29,6 +40,12 @@ This standalone wrapper is separate from the dots CLI and its Go roadmap.
   Termux/Android testing. No native phone login/support claims without evidence.
 - Update README, CHANGELOG, completion/help, and validation evidence when their
   contracts change. Run focused existing tests to address concrete risks.
+- Rebuild the manifest after changing any payload, including README/CHANGELOG.
+  Keep `SHA256SUMS` (11 allowed payloads) distinct from `RELEASE-SHA256SUMS`
+  (also source archives). Preserve historical evidence under docs/history/.
+- Release tooling builds locally; the tag workflow creates a draft. Publishing,
+  tagging/pushing, and editing remote releases need task authorization. Do not
+  overwrite published versions. Use explicit push source:destination refspecs.
 
-Checks: `bash -n bin/codex-termux`, `node --check src/runtime.cjs`,
-`node --test tests/runtime.test.cjs`, `python3 -B tests/test_wrapper.py`.
+Checks: `python3 tools/build.py --check`, `python3 -B tools/verify.py`,
+`git diff --check`. See [RELEASING.md](RELEASING.md).
