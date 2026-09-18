@@ -1,0 +1,42 @@
+{
+  "schema_version": 1,
+  "date": "2026-09-18",
+  "base_commit": "1f9e155b8c1e64e7c1ec374cde89a187a96ee5a9",
+  "delivery_version": "0.3.0",
+  "host": "Linux",
+  "machine": "x86_64",
+  "python": "3.12.14",
+  "node": "v24.19.0",
+  "tests": {
+    "node": 13,
+    "wrapper": 26,
+    "package": 27,
+    "release": 3,
+    "skipped": 0
+  },
+  "native_termux_executed": false,
+  "github_actions_executed": false,
+  "inputs": {
+    "PACKAGE-SHA256SUMS": "6cb0ccd1ced27e790b35de4327fa53831da725c1385e3477c0ff49f22a71f555",
+    "VERSION": "d915cc95d6ca8f47ae297713ed46d4e5c5d99ddd29fc3c61e263bdf305f2b5b0",
+    "bin/codex-termux": "351820d6482f38ced465a2448f288d9ec9820ac64ddf168a6ad94e699946f77c",
+    "completions/_codex-termux": "37797fd38a40891b6b21df5563235c3212fc27572f4203a68d1a160e5ae88f74",
+    "completions/codex-termux.bash": "dce9f68dff1872872a9e193df901850eff97ce831d7d4c34a30d41c8e16b814a",
+    "install.sh": "51677f19588961229066e8b063af4aae096a12d2651e52b211a200e53de2a2ad",
+    "man/codex-termux.1": "89b71698040a84cb8702bf042b35c20bbd41d871ed34014e9736c383d11d3d04",
+    "man/codex-termux.1.in": "40cc48a273da5f4a4957878e523eafff5ce6d65e09eb02ff31f24837cf1b70dd",
+    "src/frontend.sh": "ca6990ec7fdbe5c26db9aebc90266ad1b99cbf4bd288d2c2296c11fdf72a5c4f",
+    "src/package.sh": "25dd007b2d95c54d284cee5af75fa42a599650cc5021347dd7a36ca82193190c",
+    "src/runtime.cjs": "9df9abcd640f46c64f9415d9979e4218181b5e17b858fb6803312e1c3c6adf50",
+    "tests/runtime.test.cjs": "b62cfc0948ec80a504a9c9142f5d0815479211949fbde6e8d204548d1cacee1a",
+    "tests/test_package.py": "daf687e088b4b0146d2a113f6433d40b80dc5d10bae48670bda79bb0278c7b9e",
+    "tests/test_release.py": "1fbb35fe07ea7ca6b4148bd539d93926faf6294e4f5d0ebb17cddf546825189f",
+    "tests/test_wrapper.py": "776aa3eccafc63e9c0c748c51cb6dc581f5796fd0e8134b895b8987d8b1e55bc",
+    "tools/bench.py": "abf4cb9424763a164c64ddbe7944d08260b6240ed6a17d60f0d59eac88d42dae",
+    "tools/build.py": "576ddef86559b89bba0a69ca8612364977cc5e71975640acfa7860c1f8c3c6ad",
+    "tools/check_docs.py": "ea95b38688bf1539c3d9e4adfe655ab1c1cc38021184b975fe7b987d3eaa55b6",
+    "tools/release.py": "305ed0220901802e5a69b7830e3aaf6184070f6f77671d2185076255552c70c9",
+    "tools/verify.py": "464087be01f5a6c477f78434b462acbb71e5e4a30a302480066bfd030b11d9c0",
+    "uninstall.sh": "cc0d7749a93c7646063e3002fb21855e43ad8798ca8333b9a48fc3af1fc8dbc9"
+  }
+}

@@ -1,0 +1,55 @@
+name: Draft release
+
+on:
+  push:
+    tags: ['v*']
+
+permissions:
+  contents: read
+
+concurrency:
+  group: release-${{ github.ref }}
+  cancel-in-progress: false
+
+jobs:
+  verify:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 12
+    steps:
+      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
+        with:
+          persist-credentials: false
+      - name: Install test-only dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y zsh groff
+      - name: Verify release sources
+        run: python3 -B tools/verify.py
+      - name: Check tag and package build
+        env:
+          RELEASE_TAG: ${{ github.ref_name }}
+        run: python3 -B tools/release.py --tag "$RELEASE_TAG"
+  draft:
+    needs: verify
+    runs-on: ubuntu-24.04
+    timeout-minutes: 8
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
+        with:
+          persist-credentials: false
+      - name: Build the verified tagged source
+        env:
+          RELEASE_TAG: ${{ github.ref_name }}
+        run: python3 -B tools/release.py --tag "$RELEASE_TAG"
+      - name: Create draft with all assets (never publish automatically)
+        env:
+          GH_TOKEN: ${{ github.token }}
+          GH_REPO: ${{ github.repository }}
+          RELEASE_TAG: ${{ github.ref_name }}
+        run: |
+          test -f "docs/releases/$RELEASE_TAG.md"
+          gh release create "$RELEASE_TAG" "dist/$RELEASE_TAG/"* \
+            --verify-tag --draft --title "codex-termux $RELEASE_TAG" \
+            --notes-file "docs/releases/$RELEASE_TAG.md"

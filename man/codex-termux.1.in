@@ -1,0 +1,236 @@
+.TH CODEX-TERMUX 1 "2026-09-18" "codex-termux @@VERSION@@" "User Commands"
+.SH NAME
+codex-termux \- run and maintain Codex in native Android Termux
+.SH SYNOPSIS
+.B codex-termux
+.RI [ wrapper-options ]
+.RI [ command ]
+.RI [ arguments ...]
+.br
+.B codex-termux manage self-update
+.RI [ package-options ]
+.br
+.B codex-termux manage uninstall
+.RI [ package-options ]
+.SH DESCRIPTION
+Runs the Linux ARM64 or x64 npm build of Codex using native Termux Node.js
+for DNS through a temporary loopback CONNECT proxy. No proot or persistent
+proxy service is required. TLS verification remains enabled.
+.PP
+Wrapper options precede the command. Unknown commands and options are passed
+to Codex. Arguments after run or chatgpt are passed through without shell
+evaluation. The default command is run.
+.SH COMMANDS
+.TP
+.B run
+Launch Codex. Also bypasses wrapper-reserved command names.
+.TP
+.B chatgpt
+Launch with OPENAI_API_KEY, CODEX_API_KEY, and CODEX_ACCESS_TOKEN removed
+from the child environment. Stored authentication remains controlled by Codex.
+.TP
+.B login
+Use ChatGPT device authorization by default. Extra arguments go to Codex login.
+.TP
+.B login-api
+Pass OPENAI_API_KEY to Codex on standard input, not as an argument.
+.TP
+.B status
+Show Codex authentication status.
+.TP
+.B logout
+Remove stored Codex credentials using Codex logout.
+.TP
+.B doctor
+Run Codex doctor \-\-all, or the supplied doctor options.
+.TP
+.B test
+Check Node DNS, proxied HTTPS transport, and Codex Doctor. An HTTP response
+from the auth root is not proof of successful login.
+.TP
+.B setup [\-\-yes] [\-\-version X.Y.Z]
+Check/install missing Termux dependencies and prepare a Codex npm runtime.
+Package operations require confirmation or explicit \-\-yes.
+.TP
+.B completion bash|zsh
+Write a static completion script. No extension, Codex, or network execution
+is performed during generation or completion.
+.SH MAINTENANCE
+.TP
+.B manage check [\-\-json]
+Inspect local prerequisites and Codex version.
+.TP
+.B manage update [\-\-check [\-\-json]] [\-\-yes] [\-\-version X.Y.Z]
+Check or update the Codex npm runtime, with exact matching launcher/native
+packages, staging, smoke tests, and an atomic selection record.
+The global npm installation remains unchanged.
+.TP
+.B manage rollback [\-\-yes]
+Validate and select the previous Codex npm runtime.
+.TP
+.B manage self-update [package-options]
+Check or update this wrapper package, including Bash/Zsh completions and
+the manual. This is separate from manage update.
+.TP
+.B manage uninstall [\-\-dry-run] [\-\-yes] [\-\-prefix DIR] [\-\-color MODE]
+Remove verified package-managed public entries after confirmation.
+Preserve Codex runtimes, authentication, configuration, shell startup,
+recovery backups, and private package history.
+.TP
+.B manage config show|example
+Print effective nonsecret settings or a literal configuration template.
+.SH WRAPPER OPTIONS
+.TP
+.BR \-h ", " \-\-help
+Show colored, terminal-aware help.
+.TP
+.B \-\-wrapper-version
+Print the wrapper version without starting Node. Bare \-\-version continues
+to select Codex's version.
+.TP
+.B \-\-wrapper-info [\-\-json]
+Print local runtime information. JSON has no color or banner.
+.TP
+.B \-\-wrapper-dry-run
+Describe run/chatgpt without executing it. Other actions are refused.
+For package previews, use manage self-update \-\-dry-run instead.
+.TP
+.B \-\-wrapper-no-update
+Disable automatic Codex npm update checks and prompts for this launch.
+Explicit maintenance commands remain available.
+.TP
+.B \-\-wrapper-color auto|always|never
+Select output color. Automatic color honors NO_COLOR and terminal detection.
+.TP
+.B \-\-wrapper-banner auto|always|never
+Control the responsive ASCII header.
+.TP
+.B \-\-wrapper-config PATH
+Read an explicit literal key=value configuration file.
+.TP
+.B \-\-wrapper-no-config
+Ignore the configuration file.
+.TP
+.B \-\-wrapper-debug
+Emit fixed wrapper events on stderr without argument values or credentials.
+.SH PACKAGE INSTALLATION
+Run install.sh from a built checkout for a local installation.
+When no checkout is detected, it downloads published GitHub Release assets.
+Use \-\-remote to request Releases explicitly, or \-\-source DIR for a
+built source directory. The default destination is Termux's PREFIX.
+.PP
+The installer compares stable numeric wrapper versions. Equal versions exit
+without replacement. An older offered version never downgrades the installation.
+Use \-\-repair to recreate missing managed links at the same version.
+.PP
+Payload files are checked against a strict SHA256SUMS manifest. The manifest
+and downloads use HTTPS from the same release; this provides integrity under
+the trust placed in the repository and HTTPS, not independent signing.
+Release files are never executed to discover their version.
+.PP
+Package options: \-\-prefix DIR, \-\-source DIR, \-\-remote,
+\-\-version X.Y.Z, \-\-check, \-\-dry-run, \-\-repair,
+\-\-recover, \-\-yes, and \-\-color auto|always|never.
+The prefix must already exist and be owned by the current user.
+.PP
+Confirmation reads /dev/tty even when the script itself is piped from curl
+or wget. In an unattended environment an explicit \-\-yes is required.
+.PP
+New payloads are immutable versioned directories. Public symlinks point through
+one current pointer, so normal updates switch all components together.
+Initial installation/adoption and uninstallation involve several directory
+entries. An ordinary failure rolls these back using recorded backups.
+After an interrupted transaction, review pending state and use
+install.sh \-\-recover. Do not remove an operation lock without checking
+that its owner has stopped.
+.SH CONFIGURATION
+Optional configuration is read from
+$XDG_CONFIG_HOME/codex-termux/config, or $HOME/.config/codex-termux/config.
+It is literal data, never sourced or evaluated. Use absolute literal paths.
+Precedence is wrapper prefix options, environment, configuration, defaults.
+.PP
+Keys: auto_update=ask|notify|off, update_interval=86400,
+color=auto|always|never, banner=auto|always|never,
+proxy_connect_timeout=10000, proxy_allow, codex_bin, and ca_bundle.
+The interval is seconds; connection timeout is milliseconds.
+.SH ENVIRONMENT
+.TP
+.B PREFIX
+Termux installation prefix; package tools install below this prefix by default.
+.TP
+.B CODEX_TERMUX_CODEX_BIN
+Explicit executable override. Managed npm installation is disabled with an override.
+.TP
+.B CODEX_TERMUX_PROXY_ALLOW
+Comma-separated extra permitted proxy hostname trees.
+.TP
+.B CODEX_TERMUX_AUTO_UPDATE
+ask, notify, or off. Eligible interactive launches use cached npm update metadata.
+Automatic checking never installs without confirmation. Wrapper package updates
+are explicit through manage self-update.
+.TP
+.B CODEX_TERMUX_UPDATE_INTERVAL
+Successful npm metadata lifetime, from 3600 through 2592000 seconds.
+.TP
+.B CODEX_TERMUX_COLOR, CODEX_TERMUX_BANNER
+Override wrapper color/header modes.
+.TP
+.B CODEX_TERMUX_PROXY_CONNECT_TIMEOUT
+TCP connection-establishment deadline, 1000 through 120000 milliseconds.
+Established streaming tunnels have no added lifetime cutoff.
+.TP
+.B CODEX_TERMUX_CONFIG, CODEX_TERMUX_CA_BUNDLE
+Explicit configuration or Codex/curl certificate-bundle path.
+.TP
+.B CODEX_TERMUX_DATA_DIR, CODEX_TERMUX_CACHE_DIR
+Override private npm-runtime and update-cache locations.
+.TP
+.B NO_COLOR
+Disable automatic color. An explicit always mode overrides automatic detection.
+.SH FILES
+.TP
+.B $PREFIX/bin/codex-termux
+Installed command link.
+.TP
+.B $PREFIX/share/bash-completion/completions/codex-termux
+Bash completion link.
+.TP
+.B $PREFIX/share/zsh/site-functions/_codex-termux
+Zsh completion link. Reload completion after first installation if needed.
+.TP
+.B $PREFIX/share/man/man1/codex-termux.1
+This manual.
+.TP
+.B $PREFIX/libexec/codex-termux
+Private wrapper package releases, current pointer, and recovery snapshots.
+.TP
+.B $XDG_DATA_HOME/codex-termux
+Managed Codex npm runtimes; defaults under $HOME/.local/share.
+.SH EXAMPLES
+.nf
+codex-termux chatgpt
+codex-termux manage update --check
+codex-termux manage self-update --check
+codex-termux manage self-update
+codex-termux manage uninstall --dry-run
+bash install.sh --source . --dry-run
+bash install.sh --source .
+bash uninstall.sh
+.fi
+.SH EXIT STATUS
+Core success returns 0, operational failure 1, and wrapper usage errors 2.
+A started Codex command preserves its exit status. Package no-ops and declined
+confirmations return 0. Package operational errors return 1, usage errors 2.
+.SH LIMITATIONS
+The wrapper does not change models, approval policy, OS sandbox settings,
+credentials, or shell startup. It does not supply bubblewrap or make unsupported
+Android sandbox features available. A proxy allowlist is not a network sandbox.
+Forced process termination can prevent cleanup; surviving locks require review.
+Native Termux behavior must be checked on the user's device.
+.SH SEE ALSO
+.BR bash (1),
+.BR zshcompsys (1),
+.BR curl (1),
+.BR wget (1)
+.PP
+https://github.com/5nik7/codex-termux

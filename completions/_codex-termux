@@ -44,13 +44,22 @@ _codex_termux() {
           '--wrapper-debug:Show fixed diagnostic events')
       elif [[ $action == manage ]]; then
         if ((i == CURRENT)); then
-          label='maintenance'; choices=('check:Inspect local prerequisites' 'update:Check or install Codex' 'rollback:Switch to the previous runtime' 'config:Show settings or example' 'help:Show help')
+          label='maintenance'; choices=('check:Inspect local prerequisites' 'update:Check or install Codex npm runtime' 'rollback:Switch to the previous npm runtime' 'self-update:Update wrapper, completion and manual' 'uninstall:Remove wrapper package files' 'config:Show settings or example' 'help:Show help')
         else
           sub=${words[i]}; label='maintenance option'
           case $sub in
             check) choices=('--json:Machine-readable local report') ;;
             update) [[ $prev != --version ]] || return 1; choices=('--check:Check only' '--json:JSON for --check' '--yes:Authorize installation' '--version:Select exact stable version') ;;
             rollback) choices=('--yes:Authorize rollback') ;;
+            self-update|uninstall)
+              case $prev in
+                --prefix|--source) _files -/; return ;;
+                --version) return 1 ;;
+                --color) choices=('auto:Detect terminal' 'always:Force color' 'never:Disable color'); _describe -t codex-termux-options 'color mode' choices; return ;;
+              esac
+              if [[ $sub == self-update ]]; then
+                choices=('--check:Compare wrapper versions only' '--dry-run:Preview without installing' '--yes:Authorize installation' '--version:Select wrapper release' '--prefix:Owned install prefix' '--source:Built local source directory' '--remote:Read GitHub Releases' '--repair:Repair missing package links' '--recover:Recover an interrupted transaction' '--color:Select color mode' '--help:Show package help')
+              else choices=('--dry-run:Preview removal' '--yes:Authorize removal' '--prefix:Owned install prefix' '--color:Select color mode' '--help:Show package help'); fi ;;
             config) ((i+1 == CURRENT)) || return 1; choices=('show:Effective nonsecret settings' 'example:Literal configuration template') ;;
           esac
         fi
