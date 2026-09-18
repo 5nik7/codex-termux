@@ -110,6 +110,9 @@ test('rollback validates the prior selection; a failed probe changes nothing', a
 test('managed paths reject writable dirs, symlinks, and malformed selections', t => {
   const root = fixture(t), data = path.join(root, 'data');
   fs.mkdirSync(data, { mode: 0o755 });
+  // Explicit fixture permissions, independent of the caller's umask.
+  fs.chmodSync(data, 0o755);
+  assert.equal(fs.lstatSync(data).mode & 0o777, 0o755);
   assert.throws(() => rt.privateDir(data), /0700/);
   const link = path.join(root, 'link'); fs.symlinkSync(data, link);
   assert.throws(() => rt.privateDir(link));
