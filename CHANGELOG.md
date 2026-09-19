@@ -1,5 +1,21 @@
 # Changelog
 
+## 0.3.1
+
+- Add `manage auth-check [--json]` for bounded, offline MCP token-expiry log
+  evidence, with explicit unavailable/no-match states and no login-health claim.
+- Show recovery commands after eligible interactive exits when newly appended
+  diagnostic records contain an MCP HTTP 401 with `token_expired`. Keep generic
+  MCP identification conditional and preserve Codex's streams, signals and status.
+- Reuse the existing proxy startup for disposable log-offset metadata; add no
+  startup network probe, credential inspection, automatic logout, or logging.
+- Add `auth_notice`/`auth_log` configuration, environment overrides, static
+  completion, manual/help updates, and privacy/TTY regression coverage.
+- Include the already-merged restrictive-umask permission-fixture correction in
+  the next source archives. Published v0.3.0 assets remain unchanged.
+- Fix release collection treating the new `docs/evidence/0.3.1` directory as a
+  `.1` manual file; preserve its evidence files in both source archives.
+
 ## 0.3.0 — 2026-09-18
 
 - Color command names, options, section headings, descriptions, and the existing

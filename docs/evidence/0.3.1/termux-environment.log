@@ -1,0 +1,13 @@
+Captured: 2026-09-19T22:26:02Z
+Base commit: 2832dc94a26d27b4616724fc3a5ae1f33f305b3b
+Staged source tree: cfd179194ed3c7157e33db1bf3c88c48f8bcb4bc
+Linux aarch64
+GNU bash, version 5.3.15(1)-release (aarch64-unknown-linux-android)
+v26.4.0
+12.0.2
+Python 3.14.6
+zsh 5.9.2 (aarch64-unknown-linux-android)
+umask: 077
+codex-termux 0.3.1
+codex-cli 0.155.1
+2bb0aeeee8516f179349cc44f3595d1e72f45ae3ea6b87d238f0c62228e8855c  bin/codex-termux

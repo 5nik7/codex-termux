@@ -1,4 +1,28 @@
-# Ship codex-termux 0.3.0
+# Release codex-termux
+
+## Current candidate: 0.3.1
+
+The authentication-notice patch is prepared as 0.3.1. Review
+`docs/releases/v0.3.1.md` and the new section of `VALIDATION.md` first.
+Native Termux recognition of real diagnostic records remains to be checked;
+Linux fixtures alone are not sufficient evidence for that claim.
+
+From the reviewed candidate checkout, run:
+
+```bash
+python3 tools/build.py --check
+python3 -B tools/verify.py
+git diff --check
+python3 -B tools/release.py --tag v0.3.1
+```
+
+The last command builds assets locally; it does not create a tag or publish.
+Review and merge the intended commit, then obtain task authorization for tag
+push and release publication. Use a new `v0.3.1` tag and all its generated
+assets. Preserve the published `v0.3.0` tag and assets. Do not replay the old
+patch application or tag commands below.
+
+## Historical 0.3.0 shipping walkthrough
 
 These steps update the repository, test on your phone, and publish the wrapper
 package. They do not publish a new OpenAI Codex npm release. Nothing in the

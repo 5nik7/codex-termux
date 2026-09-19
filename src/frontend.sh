@@ -10,6 +10,7 @@ color=auto banner=auto auto_update=ask update_interval=86400 proxy_connect_timeo
 proxy_allow='' codex_bin='' configured_ca='' debug=0 no_update=0 config_disabled=0
 config_file='' data_dir='' cache_dir='' arch='' pending_cache='' original_action=''
 config_explicit=0
+auth_notice=auto auth_log='' auth_monitor_log=''
 declare -a codex_command=() prefix_args=()
 reset='' bold='' accent='' muted='' command_color='' option_color='' description_color='' heading_color=''
 
@@ -45,7 +46,7 @@ configure() {
       [[ -z ${seen[$key]+yes} ]] || die 'duplicate configuration key'
       seen[$key]=1
       case $key in
-        color|banner|auto_update|update_interval|proxy_connect_timeout|proxy_allow|codex_bin) printf -v "$key" '%s' "$value" ;;
+        color|banner|auto_update|update_interval|proxy_connect_timeout|proxy_allow|codex_bin|auth_notice|auth_log) printf -v "$key" '%s' "$value" ;;
         ca_bundle) configured_ca=$value ;;
         *) die 'unknown configuration key' ;;
       esac
@@ -58,6 +59,8 @@ configure() {
   proxy_allow=${CODEX_TERMUX_PROXY_ALLOW-$proxy_allow}
   codex_bin=${CODEX_TERMUX_CODEX_BIN-$codex_bin}
   configured_ca=${CODEX_TERMUX_CA_BUNDLE-$configured_ca}
+  auth_notice=${CODEX_TERMUX_AUTH_NOTICE-$auth_notice}
+  auth_log=${CODEX_TERMUX_AUTH_LOG-${auth_log:-${CODEX_HOME:-$HOME/.codex}/log/codex-tui.log}}
   data_dir=${CODEX_TERMUX_DATA_DIR:-${XDG_DATA_HOME:-$HOME/.local/share}/codex-termux}
   cache_dir=${CODEX_TERMUX_CACHE_DIR:-${XDG_CACHE_HOME:-$HOME/.cache}/codex-termux}
   local i=0
@@ -68,6 +71,7 @@ configure() {
   case $color in auto|always|never) ;; *) usage_error 'color must be auto, always, or never' ;; esac
   case $banner in auto|always|never) ;; *) usage_error 'banner must be auto, always, or never' ;; esac
   case $auto_update in ask|notify|off) ;; *) die 'auto_update must be ask, notify, or off' ;; esac
+  case $auth_notice in auto|off) ;; *) die 'auth_notice must be auto or off' ;; esac
   [[ $update_interval =~ ^[0-9]{1,7}$ ]] && ((10#$update_interval >= 3600 && 10#$update_interval <= 2592000)) || die 'update_interval must be 3600..2592000 seconds'
   [[ $proxy_connect_timeout =~ ^[0-9]{1,6}$ ]] && ((10#$proxy_connect_timeout >= 1000 && 10#$proxy_connect_timeout <= 120000)) || die 'proxy_connect_timeout must be 1000..120000 milliseconds'
   update_interval=$((10#$update_interval)); proxy_connect_timeout=$((10#$proxy_connect_timeout))
@@ -77,6 +81,7 @@ configure() {
   for value in "$codex_bin" "$configured_ca"; do
     [[ -z $value || $value == /* ]] && ! has_control "$value" || die 'executable/CA overrides must be absolute literal paths'
   done
+  [[ $auth_log == /* && $auth_log != / ]] && ! has_control "$auth_log" || die 'auth_log must be an absolute literal path'
   ((no_update)) && auto_update=off
   if [[ $color == always || ( $color == auto && -t 1 && -z ${NO_COLOR+x} && ${TERM:-dumb} != dumb ) ]]; then
     reset=$'\e[0m'; bold=$'\e[1m'; accent=$'\e[1;36m'; muted=$'\e[2m'
@@ -141,6 +146,7 @@ usage() {
   help_row "$option_color" '--wrapper-debug' 'Fixed diagnostic events on stderr.'
   printf '\n%sMaintenance%s\n' "$heading_color" "$reset"
   help_row "$command_color" 'manage check [--json]' 'Local prerequisite checks.'
+  help_row "$command_color" 'manage auth-check [--json]' 'Inspect saved MCP token-expiry errors.'
   help_row "$command_color" 'manage update [--check]' 'Update the Codex npm runtime.'
   help_row "$option_color" '  --check [--json]' 'Check npm updates without installing.'
   help_row "$option_color" '  [--yes] [--version X.Y.Z]' 'Authorize/pin npm installation.'
@@ -157,6 +163,8 @@ usage() {
   say '  Use run COMMAND to bypass wrapper command names.'
   say '  Auto-checks run in the background on eligible TUI launches.'
   say '  A cached update is offered at a later launch; default is No.'
+  say '  Eligible TUI exits show hints for newly logged token expiry.'
+  say '  Auth hints use existing logs; they never log out for you.'
   say '  No sandbox, approval, model, or auth settings are rewritten.'
 }
 
@@ -241,6 +249,8 @@ update_interval=86400
 color=auto
 banner=auto
 proxy_connect_timeout=10000
+auth_notice=auto
+# auth_log=/absolute/path/to/codex-tui.log
 # proxy_allow=example.com
 # codex_bin=/absolute/path/to/codex
 # ca_bundle=/absolute/path/to/cert.pem
@@ -295,6 +305,7 @@ maintenance() {
         example) config_example ;;
         show)
           printf 'auto_update=%s\nupdate_interval=%s\ncolor=%s\nbanner=%s\nproxy_connect_timeout=%s\n' "$auto_update" "$update_interval" "$color" "$banner" "$proxy_connect_timeout"
+          printf 'auth_notice=%s\n' "$auth_notice"
           say '# Overrides: paths and additional hosts are omitted from this summary.' ;;
         *) usage_error 'config accepts show or example' ;;
       esac
@@ -302,6 +313,11 @@ maintenance() {
     check)
       (($# == 0)) || [[ $# == 1 && $1 == --json ]] || usage_error 'check accepts only --json'
       info "${1:+json}"; return ;;
+    auth-check)
+      (($# == 0)) || [[ $# == 1 && $1 == --json ]] || usage_error 'auth-check accepts only --json'
+      require_termux
+      resolve_node || die "Node.js is required; run: $PROGRAM setup"
+      runtime auth-check "$auth_log" "${1:+json}"; return ;;
     self-update|uninstall)
       package_tool "$action" "$@"; return ;;
     update|rollback) ;;
@@ -443,7 +459,7 @@ cleanup() {
     wait "$proxy_pid" 2>/dev/null || true
   fi
   if [[ -n $runtime_dir ]]; then
-    rm -f -- "$runtime_dir/proxy.log"
+    rm -f -- "$runtime_dir/proxy.log" "$runtime_dir/auth-state"
     rmdir -- "$runtime_dir" 2>/dev/null || true
   fi
   exit "$status"
@@ -470,7 +486,7 @@ start_proxy() {
   trap 'interrupted HUP 129' HUP
   coproc CT_PROXY {
     unset OPENAI_API_KEY CODEX_API_KEY CODEX_ACCESS_TOKEN NODE_OPTIONS NODE_PATH
-    runtime proxy "$proxy_allow" "$proxy_connect_timeout" "$pending_cache" "$arch" 2>"$runtime_dir/proxy.log"
+    runtime proxy "$proxy_allow" "$proxy_connect_timeout" "$pending_cache" "$arch" "$auth_monitor_log" "$runtime_dir/auth-state" 2>"$runtime_dir/proxy.log"
   }
   proxy_pid=$CT_PROXY_PID; ready_fd=${CT_PROXY[0]}; write_fd=${CT_PROXY[1]}
   local port
@@ -501,6 +517,16 @@ run_codex() {
     kill -0 "$child_pid" 2>/dev/null || break
   done
   child_pid=''
+  return "$status"
+}
+auth_session() {
+  local auth=$1 status=0; shift
+  run_codex "$auth" "$@" || status=$?
+  # Leave Codex's TTY and streams intact. A notice is emitted only after it exits,
+  # even if an MCP failure did not cause a nonzero Codex exit status.
+  if [[ -n $auth_monitor_log ]]; then
+    runtime auth-notice "$auth_monitor_log" "$runtime_dir/auth-state" || true
+  fi
   return "$status"
 }
 interactive_launch() {
@@ -617,11 +643,14 @@ main() {
     run_codex "$action" "$@"; return
   fi
   find_ca_bundle || die "Termux's CA bundle is missing; run: $PROGRAM setup"
-  if [[ $action == run || $action == chatgpt ]]; then consider_update "$@"; fi
+  if [[ $action == run || $action == chatgpt ]]; then
+    consider_update "$@"
+    if [[ $auth_notice == auto ]] && interactive_launch "$@"; then auth_monitor_log=$auth_log; fi
+  fi
   start_proxy
   case $action in
-    run) run_codex normal "$@" ;;
-    chatgpt) run_codex chatgpt "$@" ;;
+    run) auth_session normal "$@" ;;
+    chatgpt) auth_session chatgpt "$@" ;;
     login)
       if (($#)); then run_codex chatgpt login "$@"; else run_codex chatgpt login --device-auth; fi
       if [[ -n ${OPENAI_API_KEY:-}${CODEX_API_KEY:-}${CODEX_ACCESS_TOKEN:-} ]]; then note "API credential variables remain in this shell; use '$PROGRAM chatgpt'."; fi ;;

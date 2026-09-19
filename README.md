@@ -1,12 +1,12 @@
-# codex-termux 0.3.0
+# codex-termux 0.3.1
 
 Run Codex's Linux npm build in **native Termux**, with Android DNS handled by
 native Node.js through a temporary loopback proxy. No proot or persistent service.
 
-This release adds a package installer/updater/uninstaller, a manual, and richer
-help colors. The existing Codex launch, login, proxy, and npm-runtime management
-remain compatible. The owner reported successful use of 0.2.0 on their phone;
-0.3.0's new package operations have separate [validation](VALIDATION.md).
+This patch adds an offline check for saved MCP token-expiry errors and an
+automatic recovery notice after eligible interactive sessions. Existing launch,
+login, proxy, and package/runtime management remain compatible. See
+[validation](VALIDATION.md) for evidence and native Termux checks still needed.
 
 ## Install or update the wrapper package
 
@@ -55,7 +55,7 @@ installation works before the first release. Afterward:
 codex-termux manage self-update --check   # wrapper version comparison only
 codex-termux manage self-update          # confirm and update every package file
 codex-termux manage self-update --dry-run
-codex-termux manage self-update --version 0.3.0
+codex-termux manage self-update --version 0.3.1
 codex-termux manage self-update --repair  # repair missing links at the same version
 ```
 
@@ -252,6 +252,123 @@ lock is stale: confirm that no update/check is running before removing a leftove
 lock. A normal wrapper exit cleans its background check lock. Never remove a
 lock to force concurrent updates.
 
+## Expired authentication notices
+
+When an eligible interactive `run` or `chatgpt` session logs an MCP HTTP `401`
+with the exact `token_expired` error code, the wrapper prints a recovery hint
+**after Codex exits**, even if Codex itself returned success. For a record that
+identifies `codex_apps`, the hint shows:
+
+```bash
+codex-termux logout
+codex-termux login
+codex-termux chatgpt
+```
+
+The commands are suggestions, never executed automatically. `logout` removes
+saved Codex credentials; `login` uses device authorization by default. If the
+record does not identify the MCP server, the hint makes the ChatGPT recovery
+conditional on the failed server being `codex_apps`; another server may need
+its own login. A token's expiry time or a generic `401` is not enough to trigger
+this notice. Codex can refresh credentials, and `login status` only establishes
+that credentials are present.
+
+To inspect saved evidence explicitly:
+
+```bash
+codex-termux manage auth-check
+codex-termux manage auth-check --json
+```
+
+This reads at most the last 256 KiB of the selected diagnostic log. It does not
+contact a service or prove current login health; a saved error can predate a
+successful login. JSON always includes `authentication_verified: false` and
+contains only fixed status/server values and a parsed timestamp, never log text.
+Exit codes: `0` = no matching evidence, `1` = expiry evidence found,
+`2` = invalid command arguments, `3` = log unavailable. **No match is not a
+successful authentication test.** Node is needed, but Codex and a CA bundle are
+not needed for this explicit check.
+
+The default log is `${CODEX_HOME:-$HOME/.codex}/log/codex-tui.log`. The wrapper
+needs Codex to write this diagnostic log; it does not enable logging itself.
+If the log is missing or unreadable, `manage auth-check --json` reports
+`unavailable`, and automatic notices stay silent. This is not an expired-login
+diagnosis.
+
+To enable persistent logging, edit `${CODEX_HOME:-$HOME/.codex}/config.toml`
+(normally `~/.codex/config.toml`). Add `log_dir` at the **top level, before the
+first `[section]` heading**, rather than inside `[features]`, `[tui]`, or another
+table. If a top-level `log_dir` already exists, update that setting instead of
+adding a duplicate. For a standard Termux installation, use:
+
+```toml
+log_dir = "/data/data/com.termux/files/home/.codex/log"
+```
+
+Use an absolute path matching your installation; do not put literal `$HOME` or
+`$CODEX_HOME` variables in the TOML value. Explicitly setting `log_dir` enables
+Codex's local plaintext TUI log on subsequent launches. See the upstream
+[log_dir documentation](https://learn.chatgpt.com/docs/config-file/config-reference#log_dir).
+
+Launch normally, let startup finish, and then exit Codex:
+
+```bash
+codex-termux chatgpt
+```
+
+Back at the shell, check that the wrapper can read the log without temporary
+overrides:
+
+```bash
+codex-termux manage auth-check --json
+```
+
+`no_match` means the log was readable and no matching expired-token error was
+found in the scanned portion. It does not verify current login health.
+
+**Custom log paths must agree.** Codex's `log_dir` selects a **directory**;
+the wrapper's `auth_log` selects the **full log filename** in that directory.
+For example, in Codex's `config.toml`, at the top level:
+
+```toml
+log_dir = "/data/data/com.termux/files/home/codex-logs"
+```
+
+Then add or update this literal line in the wrapper configuration, normally
+`~/.config/codex-termux/config`:
+
+```ini
+auth_log=/data/data/com.termux/files/home/codex-logs/codex-tui.log
+```
+
+Use your selected wrapper config if `CODEX_TERMUX_CONFIG` or `XDG_CONFIG_HOME`
+changes its location. Wrapper config values are unquoted literal paths.
+`CODEX_TERMUX_AUTH_LOG`, when set, overrides `auth_log` and must point to that
+same full filename for both launches and manual checks. The wrapper does not
+read Codex's `log_dir` setting automatically.
+
+Automatic checks reuse the already-starting proxy process to record the log's
+identity/size. After the child exits, a local Node helper scans the first 256 KiB
+appended during that launch. Old entries are ignored; observed rotation,
+truncation, unreadable files, symlinks, and special files are skipped. Missing
+or changed log formats, errors beyond the scan limit, or concurrent sessions
+sharing one log can limit attribution. The notice reports logged evidence,
+not a verified persistent login failure.
+
+No credential store is opened, no raw log text is saved or printed, and no
+stdout/stderr interception, network probe, background watcher, or persistent
+auth state is added. Help/version/completion fast paths stay unchanged. Only
+recognized interactive launch grammar with stdin/stdout/stderr on a terminal
+enables the notice; exec, redirected output, login, and unknown grammar skip it.
+Existing foreground streams, signals, and Codex exit status are preserved.
+
+Disable automatic notices with `auth_notice=off` in wrapper configuration or
+for one launch:
+
+```bash
+CODEX_TERMUX_AUTH_NOTICE=off codex-termux chatgpt
+```
+
 ## Shell completion
 
 Generation and completion do not run Codex, launch a proxy, contact a registry,
@@ -310,7 +427,7 @@ output only; machine output and forwarded Codex output are never decorated.
 ```bash
 codex-termux --wrapper-color always --wrapper-banner always --help
 codex-termux --wrapper-color never --wrapper-banner never --help
-codex-termux --wrapper-version    # wrapper 0.3.0, no Node process
+codex-termux --wrapper-version    # wrapper 0.3.1, no Node process
 codex-termux --version            # original Codex --version behavior
 codex-termux --wrapper-info --json
 codex-termux --wrapper-dry-run chatgpt --sandbox danger-full-access
@@ -338,6 +455,8 @@ Wrapper options belong **before** the wrapper command; all arguments after
 | Variable | Default / role |
 | --- | --- |
 | `CODEX_TERMUX_AUTO_UPDATE` | `ask`; also `notify` or `off` |
+| `CODEX_TERMUX_AUTH_NOTICE` | `auto`; `off` disables automatic log-based notices |
+| `CODEX_TERMUX_AUTH_LOG` | Existing diagnostic log; default under `$CODEX_HOME/log` or `$HOME/.codex/log` |
 | `CODEX_TERMUX_UPDATE_INTERVAL` | `86400`; range 3600–2592000 seconds |
 | `CODEX_TERMUX_COLOR` | `auto`; also `always` or `never` |
 | `CODEX_TERMUX_BANNER` | `auto`; also `always` or `never` |
@@ -387,7 +506,7 @@ passes `OPENAI_API_KEY` on stdin to Codex, without including the key in argv.
 ```bash
 python3 tools/build.py
 python3 -B tools/verify.py
-python3 -B tools/release.py --tag v0.3.0
+python3 -B tools/release.py --tag v0.3.1
 # Optional, measured separately from correctness checks:
 python3 -B tools/bench.py
 ```

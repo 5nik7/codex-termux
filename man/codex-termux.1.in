@@ -1,4 +1,4 @@
-.TH CODEX-TERMUX 1 "2026-09-18" "codex-termux @@VERSION@@" "User Commands"
+.TH CODEX-TERMUX 1 "2026-09-19" "codex-termux @@VERSION@@" "User Commands"
 .SH NAME
 codex-termux \- run and maintain Codex in native Android Termux
 .SH SYNOPSIS
@@ -59,6 +59,12 @@ is performed during generation or completion.
 .TP
 .B manage check [\-\-json]
 Inspect local prerequisites and Codex version.
+.TP
+.B manage auth-check [\-\-json]
+Inspect the last 256 KiB of an existing diagnostic log for MCP HTTP 401
+token_expired errors. This is saved evidence, not a live authentication test.
+JSON contains fixed status/server fields and a timestamp, never log text.
+No match does not establish healthy authentication.
 .TP
 .B manage update [\-\-check [\-\-json]] [\-\-yes] [\-\-version X.Y.Z]
 Check or update the Codex npm runtime, with exact matching launcher/native
@@ -153,6 +159,31 @@ Keys: auto_update=ask|notify|off, update_interval=86400,
 color=auto|always|never, banner=auto|always|never,
 proxy_connect_timeout=10000, proxy_allow, codex_bin, and ca_bundle.
 The interval is seconds; connection timeout is milliseconds.
+.PP
+auth_notice=auto|off controls post-session token-expiry notices.
+auth_log selects an absolute existing diagnostic-log path.
+By default, use $CODEX_HOME/log/codex-tui.log or
+$HOME/.codex/log/codex-tui.log when CODEX_HOME is unset.
+.SH AUTHENTICATION NOTICES
+After an eligible interactive run/chatgpt session exits, inspect up to the first
+256 KiB added to its existing diagnostic log during that launch.
+Recognized MCP warning/error records with HTTP 401 and token_expired produce
+a recovery hint. When the record identifies codex_apps, suggest logout,
+login, and chatgpt; otherwise make that advice conditional on the failed server.
+Never execute recovery commands automatically.
+.PP
+No startup network probe, credential-store read, stream interception,
+logging configuration change, or background watcher is added.
+Only recognized interactive launch grammar with all three streams on terminals
+enables the automatic notice. Redirected output, exec, login and unknown grammar
+skip it. Codex exit status and signal handling remain unchanged.
+.PP
+Old entries are ignored automatically. Observed rotation/truncation, unsafe or
+unreadable logs are skipped. A custom Codex log directory needs an explicit
+auth_log setting; Codex configuration layers are not parsed.
+Disabled logging, changed log formats, bounded reads and concurrent sessions
+sharing one log limit detection. Existing errors can predate a successful login.
+Explicit auth-check reports unavailable logs without a login-health conclusion.
 .SH ENVIRONMENT
 .TP
 .B PREFIX
@@ -168,6 +199,12 @@ Comma-separated extra permitted proxy hostname trees.
 ask, notify, or off. Eligible interactive launches use cached npm update metadata.
 Automatic checking never installs without confirmation. Wrapper package updates
 are explicit through manage self-update.
+.TP
+.B CODEX_TERMUX_AUTH_NOTICE
+auto (default) or off. Disable automatic log-based notices with off.
+.TP
+.B CODEX_TERMUX_AUTH_LOG
+Override the existing diagnostic-log path. Does not enable Codex logging.
 .TP
 .B CODEX_TERMUX_UPDATE_INTERVAL
 Successful npm metadata lifetime, from 3600 through 2592000 seconds.
@@ -209,6 +246,8 @@ Managed Codex npm runtimes; defaults under $HOME/.local/share.
 .SH EXAMPLES
 .nf
 codex-termux chatgpt
+codex-termux manage auth-check
+codex-termux manage auth-check --json
 codex-termux manage update --check
 codex-termux manage self-update --check
 codex-termux manage self-update
@@ -221,6 +260,8 @@ bash uninstall.sh
 Core success returns 0, operational failure 1, and wrapper usage errors 2.
 A started Codex command preserves its exit status. Package no-ops and declined
 confirmations return 0. Package operational errors return 1, usage errors 2.
+Auth-check returns 0 for no matching saved evidence, 1 for expiry evidence,
+2 for usage errors, and 3 for an unavailable log. No match is not verified login.
 .SH LIMITATIONS
 The wrapper does not change models, approval policy, OS sandbox settings,
 credentials, or shell startup. It does not supply bubblewrap or make unsupported

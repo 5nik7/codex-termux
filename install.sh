@@ -3,7 +3,7 @@
 set -Eeuo pipefail
 umask 077
 
-readonly PACKAGE_TOOL_VERSION=0.3.0
+readonly PACKAGE_TOOL_VERSION=0.3.1
 readonly PACKAGE_DEFAULT_ACTION=install
 readonly PACKAGE_RELEASES=https://github.com/5nik7/codex-termux/releases
 readonly PACKAGE_FORMAT=codex-termux-package-1
