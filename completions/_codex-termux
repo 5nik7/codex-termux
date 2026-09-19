@@ -44,11 +44,12 @@ _codex_termux() {
           '--wrapper-debug:Show fixed diagnostic events')
       elif [[ $action == manage ]]; then
         if ((i == CURRENT)); then
-          label='maintenance'; choices=('check:Inspect local prerequisites' 'update:Check or install Codex npm runtime' 'rollback:Switch to the previous npm runtime' 'self-update:Update wrapper, completion and manual' 'uninstall:Remove wrapper package files' 'config:Show settings or example' 'help:Show help')
+          label='maintenance'; choices=('check:Inspect local prerequisites' 'auth-check:Inspect saved MCP token-expiry errors' 'update:Check or install Codex npm runtime' 'rollback:Switch to the previous npm runtime' 'self-update:Update wrapper, completion and manual' 'uninstall:Remove wrapper package files' 'config:Show settings or example' 'help:Show help')
         else
           sub=${words[i]}; label='maintenance option'
           case $sub in
             check) choices=('--json:Machine-readable local report') ;;
+            auth-check) choices=('--json:Machine-readable saved-log evidence') ;;
             update) [[ $prev != --version ]] || return 1; choices=('--check:Check only' '--json:JSON for --check' '--yes:Authorize installation' '--version:Select exact stable version') ;;
             rollback) choices=('--yes:Authorize rollback') ;;
             self-update|uninstall)

@@ -1,0 +1,118 @@
++ /data/data/com.termux/files/usr/bin/python3 -B tools/build.py --check
+Generated files and package checksums match source.
++ bash -n bin/codex-termux
++ bash -n install.sh
++ bash -n uninstall.sh
++ zsh -n completions/_codex-termux
++ node --check src/runtime.cjs
++ bash -n completions/codex-termux.bash
++ node --test tests/runtime.test.cjs
+✔ auth evidence requires an MCP warning/error, HTTP 401 and the exact expiry code (14.27901ms)
+✔ automatic auth scan ignores old bytes and detects new errors without leaking records (13.9375ms)
+✔ auth scan supports a newly created log and skips rotation/truncation (5.115312ms)
+✔ auth scanner is bounded and separates startup bytes from explicit saved-log tail (8.798698ms)
+✔ auth scanner refuses special files, symlinks and auth.json without blocking (37.289063ms)
+✔ strict versions and numeric comparison reject injection and prereleases (2.943906ms)
+✔ metadata requires an exact platform alias and known launcher layout (8.899166ms)
+✔ check updates private cache; a failed check preserves prior cache (20.913281ms)
+✔ staged install pins both packages, disables scripts, probes relocated runtime, activates atomically (30.604323ms)
+✔ npm failure, corrupt package, and each smoke-test failure preserve active runtime (116.413802ms)
+✔ update lock refuses concurrency without changing lock or selection (2.681771ms)
+✔ rollback validates the prior selection; a failed probe changes nothing (26.299688ms)
+✔ managed paths reject writable dirs, symlinks, and malformed selections (3.043646ms)
+✔ installer environment clears auth and npm config; keeps native PATH and transport proxy (3.11125ms)
+✔ CONNECT authority parsing preserves explicit ports and rejects URL forms (1.46401ms)
+✔ real loopback proxy denies unknown/suffix-confusion hosts and plain HTTP (84.114427ms)
+✔ real CONNECT tunnel transports bytes and survives connection timeout after establishment (123.970521ms)
+✔ CONNECT handshake timeout is bounded (49.698125ms)
+ℹ tests 18
+ℹ suites 0
+ℹ pass 18
+ℹ fail 0
+ℹ cancelled 0
+ℹ skipped 0
+ℹ todo 0
+ℹ duration_ms 1220.054375
++ /data/data/com.termux/files/usr/bin/python3 -B tests/test_wrapper.py
+test_auth_check_saved_evidence_json_is_private_and_needs_no_codex_or_ca (__main__.WrapperTests.test_auth_check_saved_evidence_json_is_private_and_needs_no_codex_or_ca) ... ok
+test_auth_notice_after_tty_exit_preserves_status_and_filters_old_errors (__main__.WrapperTests.test_auth_notice_after_tty_exit_preserves_status_and_filters_old_errors) ... ok
+test_auth_notice_honors_codex_home_and_wrapper_log_configuration (__main__.WrapperTests.test_auth_notice_honors_codex_home_and_wrapper_log_configuration) ... ok
+test_auth_notice_opt_out_passthrough_and_noninteractive_are_quiet (__main__.WrapperTests.test_auth_notice_opt_out_passthrough_and_noninteractive_are_quiet) ... ok
+test_bad_args_are_rejected_before_proxy_or_launch (__main__.WrapperTests.test_bad_args_are_rejected_before_proxy_or_launch) ... ok
+test_bash_completion_routes_and_passthrough_boundary (__main__.WrapperTests.test_bash_completion_routes_and_passthrough_boundary) ... ok
+test_cached_update_prompt_decline_preserves_launch_and_no_update_suppresses_it (__main__.WrapperTests.test_cached_update_prompt_decline_preserves_launch_and_no_update_suppresses_it) ... ok
+test_chatgpt_preserves_args_cwd_streams_and_status (__main__.WrapperTests.test_chatgpt_preserves_args_cwd_streams_and_status) ... ok
+test_configuration_is_literal_and_cli_overrides_env (__main__.WrapperTests.test_configuration_is_literal_and_cli_overrides_env) ... ok
+test_console_group_ctrl_c_reaches_child_and_cleans_proxy (__main__.WrapperTests.test_console_group_ctrl_c_reaches_child_and_cleans_proxy) ... ok
+test_console_interrupt_keeps_proxy_when_codex_stays_open (__main__.WrapperTests.test_console_interrupt_keeps_proxy_when_codex_stays_open) ... ok
+test_dry_run_does_not_expose_prompt_or_touch_runtime (__main__.WrapperTests.test_dry_run_does_not_expose_prompt_or_touch_runtime) ... ok
+test_dry_run_refuses_maintenance_before_any_install_or_probe (__main__.WrapperTests.test_dry_run_refuses_maintenance_before_any_install_or_probe) ... ok
+test_fresh_setup_requests_node_and_npm_separately_then_checks_installation (__main__.WrapperTests.test_fresh_setup_requests_node_and_npm_separately_then_checks_installation) ... ok
+test_generated_completions_match_source (__main__.WrapperTests.test_generated_completions_match_source) ... ok
+test_help_and_wrapper_version_do_not_need_node_or_termux (__main__.WrapperTests.test_help_and_wrapper_version_do_not_need_node_or_termux) ... ok
+test_help_uses_separate_command_option_and_description_colors (__main__.WrapperTests.test_help_uses_separate_command_option_and_description_colors) ... ok
+test_invalid_override_never_triggers_setup_package_repair (__main__.WrapperTests.test_invalid_override_never_triggers_setup_package_repair) ... ok
+test_json_info_is_logo_and_color_free (__main__.WrapperTests.test_json_info_is_logo_and_color_free) ... ok
+test_local_codex_version_and_status_need_no_proxy_or_ca (__main__.WrapperTests.test_local_codex_version_and_status_need_no_proxy_or_ca) ... ok
+test_login_defaults_and_api_secret_via_stdin (__main__.WrapperTests.test_login_defaults_and_api_secret_via_stdin) ... ok
+test_no_argument_launch_and_proxy_cleanup (__main__.WrapperTests.test_no_argument_launch_and_proxy_cleanup) ... ok
+test_noninteractive_and_exec_never_prompt_or_auto_check (__main__.WrapperTests.test_noninteractive_and_exec_never_prompt_or_auto_check) ... ok
+test_responsive_header_and_no_color (__main__.WrapperTests.test_responsive_header_and_no_color) ... ok
+test_setup_checks_working_override_without_changes (__main__.WrapperTests.test_setup_checks_working_override_without_changes) ... ok
+test_stdin_pipe_passes_through (__main__.WrapperTests.test_stdin_pipe_passes_through) ... ok
+test_term_signal_cleans_proxy_and_direct_child (__main__.WrapperTests.test_term_signal_cleans_proxy_and_direct_child) ... ok
+test_unknown_commands_are_passthrough_and_run_bypasses_reserved_names (__main__.WrapperTests.test_unknown_commands_are_passthrough_and_run_bypasses_reserved_names) ... ok
+test_zsh_actual_tab_completion_in_owned_pty (__main__.WrapperTests.test_zsh_actual_tab_completion_in_owned_pty) ... ok
+test_zsh_completion_candidates_with_real_zsh (__main__.WrapperTests.test_zsh_completion_candidates_with_real_zsh) ... ok
+
+----------------------------------------------------------------------
+Ran 30 tests in 28.100s
+
+OK
++ /data/data/com.termux/files/usr/bin/python3 -B tests/test_package.py
+test_adopts_standalone_without_executing_it_and_backs_up_original (__main__.PackageTests.test_adopts_standalone_without_executing_it_and_backs_up_original) ... ok
+test_bad_checksums_manifest_and_source_symlinks_never_touch_prefix (__main__.PackageTests.test_bad_checksums_manifest_and_source_symlinks_never_touch_prefix) ... ok
+test_check_preview_and_no_tty_do_not_install (__main__.PackageTests.test_check_preview_and_no_tty_do_not_install) ... ok
+test_destination_parent_symlink_and_fifo_are_refused_without_opening (__main__.PackageTests.test_destination_parent_symlink_and_fifo_are_refused_without_opening) ... ok
+test_equal_version_noop_leaves_every_prefix_entry_unchanged (__main__.PackageTests.test_equal_version_noop_leaves_every_prefix_entry_unchanged) ... ok
+test_failed_initial_install_restores_original_entries (__main__.PackageTests.test_failed_initial_install_restores_original_entries) ... ok
+test_failed_update_preserves_previous_current_pointer (__main__.PackageTests.test_failed_update_preserves_previous_current_pointer) ... ok
+test_fresh_local_install_all_components_without_node (__main__.PackageTests.test_fresh_local_install_all_components_without_node) ... ok
+test_installed_wrapper_delegates_uninstall_without_node (__main__.PackageTests.test_installed_wrapper_delegates_uninstall_without_node) ... ok
+test_interrupted_install_is_detected_and_can_be_explicitly_recovered (__main__.PackageTests.test_interrupted_install_is_detected_and_can_be_explicitly_recovered) ... ok
+test_legacy_symlink_target_is_not_modified (__main__.PackageTests.test_legacy_symlink_target_is_not_modified) ... ok
+test_lock_refusal_does_not_change_existing_installation (__main__.PackageTests.test_lock_refusal_does_not_change_existing_installation) ... ok
+test_missing_link_can_be_repaired_but_modified_entry_is_retained (__main__.PackageTests.test_missing_link_can_be_repaired_but_modified_entry_is_retained) ... ok
+test_newer_version_switches_pointer_and_preserves_previous_payload (__main__.PackageTests.test_newer_version_switches_pointer_and_preserves_previous_payload) ... ok
+test_older_version_never_downgrades (__main__.PackageTests.test_older_version_never_downgrades) ... ok
+test_partial_uninstall_failure_restores_all_public_entries (__main__.PackageTests.test_partial_uninstall_failure_restores_all_public_entries) ... ok
+test_piped_install_resolves_remote_without_source_filename (__main__.PackageTests.test_piped_install_resolves_remote_without_source_filename) ... ok
+test_piped_script_uses_controlling_terminal_for_decline_and_accept (__main__.PackageTests.test_piped_script_uses_controlling_terminal_for_decline_and_accept) ... ok
+test_remote_check_fetches_only_version_and_remote_install_pins_all_assets (__main__.PackageTests.test_remote_check_fetches_only_version_and_remote_install_pins_all_assets) ... ok
+test_remote_corrupt_asset_fails_before_install (__main__.PackageTests.test_remote_corrupt_asset_fails_before_install) ... ok
+test_state_subdirectory_symlink_is_refused_before_chmod (__main__.PackageTests.test_state_subdirectory_symlink_is_refused_before_chmod) ... ok
+test_uninstall_only_owned_entries_and_keep_user_state (__main__.PackageTests.test_uninstall_only_owned_entries_and_keep_user_state) ... ok
+test_uninstall_preview_and_modified_entry_refusal (__main__.PackageTests.test_uninstall_preview_and_modified_entry_refusal) ... ok
+test_uninstaller_preserves_unmanaged_standalone (__main__.PackageTests.test_uninstaller_preserves_unmanaged_standalone) ... ok
+test_wget_fallback_without_curl (__main__.PackageTests.test_wget_fallback_without_curl) ... ok
+test_wrapper_color_is_inherited_and_package_flag_can_override_it (__main__.PackageTests.test_wrapper_color_is_inherited_and_package_flag_can_override_it) ... ok
+test_wrapper_package_help_delegates_without_node (__main__.PackageTests.test_wrapper_package_help_delegates_without_node) ... ok
+
+----------------------------------------------------------------------
+Ran 27 tests in 47.156s
+
+OK
++ /data/data/com.termux/files/usr/bin/python3 -B tests/test_release.py
+test_archive_parity_and_extracted_source_installation (__main__.ReleaseTests.test_archive_parity_and_extracted_source_installation) ... ok
+test_rejects_wrong_tag_and_existing_output_without_overwriting (__main__.ReleaseTests.test_rejects_wrong_tag_and_existing_output_without_overwriting) ... ok
+test_repeatable_assets_and_both_checksum_manifests (__main__.ReleaseTests.test_repeatable_assets_and_both_checksum_manifests) ... ok
+
+----------------------------------------------------------------------
+Ran 3 tests in 2.903s
+
+OK
++ /data/data/com.termux/files/usr/bin/python3 -B tools/check_docs.py
+Documentation links passed: 16 local targets (fragments not checked).
+SKIP: groff is unavailable; manual rendering is not verified on this host.
+Standalone SHA-256: 2bb0aeeee8516f179349cc44f3595d1e72f45ae3ea6b87d238f0c62228e8855c
+Offline verification passed.

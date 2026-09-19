@@ -19,10 +19,10 @@ _codex_termux_complete() {
     COMPREPLY=($(compgen -W 'run chatgpt login login-api status logout doctor test setup manage completion help --help --version --wrapper-version --wrapper-info --wrapper-dry-run --wrapper-no-update --wrapper-color --wrapper-banner --wrapper-config --wrapper-no-config --wrapper-debug' -- "$cur")); return
   fi
   if [[ $action == manage ]]; then
-    if ((i == COMP_CWORD)); then COMPREPLY=($(compgen -W 'check update rollback self-update uninstall config help' -- "$cur")); return; fi
+    if ((i == COMP_CWORD)); then COMPREPLY=($(compgen -W 'check auth-check update rollback self-update uninstall config help' -- "$cur")); return; fi
     sub=${COMP_WORDS[i]}
     case $sub in
-      check) COMPREPLY=($(compgen -W '--json' -- "$cur")) ;;
+      check|auth-check) COMPREPLY=($(compgen -W '--json' -- "$cur")) ;;
       update)
         [[ $prev != --version ]] || return 0
         COMPREPLY=($(compgen -W '--check --json --yes --version' -- "$cur")) ;;

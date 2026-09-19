@@ -3,13 +3,14 @@
 set -Eeuo pipefail
 
 readonly PROGRAM=${0##*/}
-readonly WRAPPER_VERSION=0.3.0
+readonly WRAPPER_VERSION=0.3.1
 runtime_dir='' proxy_pid='' child_pid='' proxy_url='' node_bin='' ca_bundle=''
 codex_kind='' codex_launcher='' installed_version='' selected_runtime=system previous_runtime=-
 color=auto banner=auto auto_update=ask update_interval=86400 proxy_connect_timeout=10000
 proxy_allow='' codex_bin='' configured_ca='' debug=0 no_update=0 config_disabled=0
 config_file='' data_dir='' cache_dir='' arch='' pending_cache='' original_action=''
 config_explicit=0
+auth_notice=auto auth_log='' auth_monitor_log=''
 declare -a codex_command=() prefix_args=()
 reset='' bold='' accent='' muted='' command_color='' option_color='' description_color='' heading_color=''
 
@@ -45,7 +46,7 @@ configure() {
       [[ -z ${seen[$key]+yes} ]] || die 'duplicate configuration key'
       seen[$key]=1
       case $key in
-        color|banner|auto_update|update_interval|proxy_connect_timeout|proxy_allow|codex_bin) printf -v "$key" '%s' "$value" ;;
+        color|banner|auto_update|update_interval|proxy_connect_timeout|proxy_allow|codex_bin|auth_notice|auth_log) printf -v "$key" '%s' "$value" ;;
         ca_bundle) configured_ca=$value ;;
         *) die 'unknown configuration key' ;;
       esac
@@ -58,6 +59,8 @@ configure() {
   proxy_allow=${CODEX_TERMUX_PROXY_ALLOW-$proxy_allow}
   codex_bin=${CODEX_TERMUX_CODEX_BIN-$codex_bin}
   configured_ca=${CODEX_TERMUX_CA_BUNDLE-$configured_ca}
+  auth_notice=${CODEX_TERMUX_AUTH_NOTICE-$auth_notice}
+  auth_log=${CODEX_TERMUX_AUTH_LOG-${auth_log:-${CODEX_HOME:-$HOME/.codex}/log/codex-tui.log}}
   data_dir=${CODEX_TERMUX_DATA_DIR:-${XDG_DATA_HOME:-$HOME/.local/share}/codex-termux}
   cache_dir=${CODEX_TERMUX_CACHE_DIR:-${XDG_CACHE_HOME:-$HOME/.cache}/codex-termux}
   local i=0
@@ -68,6 +71,7 @@ configure() {
   case $color in auto|always|never) ;; *) usage_error 'color must be auto, always, or never' ;; esac
   case $banner in auto|always|never) ;; *) usage_error 'banner must be auto, always, or never' ;; esac
   case $auto_update in ask|notify|off) ;; *) die 'auto_update must be ask, notify, or off' ;; esac
+  case $auth_notice in auto|off) ;; *) die 'auth_notice must be auto or off' ;; esac
   [[ $update_interval =~ ^[0-9]{1,7}$ ]] && ((10#$update_interval >= 3600 && 10#$update_interval <= 2592000)) || die 'update_interval must be 3600..2592000 seconds'
   [[ $proxy_connect_timeout =~ ^[0-9]{1,6}$ ]] && ((10#$proxy_connect_timeout >= 1000 && 10#$proxy_connect_timeout <= 120000)) || die 'proxy_connect_timeout must be 1000..120000 milliseconds'
   update_interval=$((10#$update_interval)); proxy_connect_timeout=$((10#$proxy_connect_timeout))
@@ -77,6 +81,7 @@ configure() {
   for value in "$codex_bin" "$configured_ca"; do
     [[ -z $value || $value == /* ]] && ! has_control "$value" || die 'executable/CA overrides must be absolute literal paths'
   done
+  [[ $auth_log == /* && $auth_log != / ]] && ! has_control "$auth_log" || die 'auth_log must be an absolute literal path'
   ((no_update)) && auto_update=off
   if [[ $color == always || ( $color == auto && -t 1 && -z ${NO_COLOR+x} && ${TERM:-dumb} != dumb ) ]]; then
     reset=$'\e[0m'; bold=$'\e[1m'; accent=$'\e[1;36m'; muted=$'\e[2m'
@@ -141,6 +146,7 @@ usage() {
   help_row "$option_color" '--wrapper-debug' 'Fixed diagnostic events on stderr.'
   printf '\n%sMaintenance%s\n' "$heading_color" "$reset"
   help_row "$command_color" 'manage check [--json]' 'Local prerequisite checks.'
+  help_row "$command_color" 'manage auth-check [--json]' 'Inspect saved MCP token-expiry errors.'
   help_row "$command_color" 'manage update [--check]' 'Update the Codex npm runtime.'
   help_row "$option_color" '  --check [--json]' 'Check npm updates without installing.'
   help_row "$option_color" '  [--yes] [--version X.Y.Z]' 'Authorize/pin npm installation.'
@@ -157,6 +163,8 @@ usage() {
   say '  Use run COMMAND to bypass wrapper command names.'
   say '  Auto-checks run in the background on eligible TUI launches.'
   say '  A cached update is offered at a later launch; default is No.'
+  say '  Eligible TUI exits show hints for newly logged token expiry.'
+  say '  Auth hints use existing logs; they never log out for you.'
   say '  No sandbox, approval, model, or auth settings are rewritten.'
 }
 
@@ -273,6 +281,92 @@ function atomic(file, content) {
     try { fs.unlinkSync(tmp); } catch (e) { if (e.code !== 'ENOENT') throw e; }
   }
 }
+
+// Existing diagnostic logs only. Never open the auth store, probe an account,
+// echo a log record, or capture Codex's terminal streams for this advisory.
+const AUTH_LOG_LIMIT = 256 * 1024;
+function openAuthLog(file) {
+  if (!path.isAbsolute(file) || /[\x00-\x1f\x7f]/.test(file) || path.basename(file) === 'auth.json') {
+    fail('unavailable auth diagnostic log');
+  }
+  const fd = fs.openSync(file, fs.constants.O_RDONLY | fs.constants.O_NOFOLLOW | fs.constants.O_NONBLOCK);
+  try {
+    const st = fs.fstatSync(fd);
+    if (!st.isFile() || !Number.isSafeInteger(st.size) || (process.getuid && st.uid !== process.getuid())) {
+      fail('unavailable auth diagnostic log');
+    }
+    return { fd, st };
+  } catch (error) { fs.closeSync(fd); throw error; }
+}
+function authLogSnapshot(file) {
+  const started = Date.now();
+  try {
+    const { fd, st } = openAuthLog(file);
+    fs.closeSync(fd);
+    return { kind: 'present', dev: st.dev, ino: st.ino, size: st.size, started };
+  } catch (error) {
+    return { kind: error.code === 'ENOENT' ? 'missing' : 'unavailable', started };
+  }
+}
+function authLogEvidence(text, since = 0) {
+  // A record starts at a tracing timestamp, including INFO/DEBUG boundaries.
+  // Merely mentioning the error in a prompt/tool INFO record is not evidence.
+  const plain = text.replace(/\x1b\[[0-9;]*m/g, '');
+  const header = /^(\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(?:\.\d+)?(?:Z|[+-]\d{2}:\d{2}))\s+(TRACE|DEBUG|INFO|WARN|ERROR)\s+([^\n]*)/gm;
+  const starts = [...plain.matchAll(header)];
+  let found = null;
+  for (let i = 0; i < starts.length; i++) {
+    const match = starts[i], at = Date.parse(match[1]);
+    if (!Number.isFinite(at) || at < since || !['WARN', 'ERROR'].includes(match[2])) continue;
+    if (!/\b(?:codex_rmcp_client(?:::|:)|codex_core::mcp_connection_manager:|rmcp::transport::)/.test(match[3])) continue;
+    const end = i + 1 < starts.length ? starts[i + 1].index : plain.length;
+    if (end - match.index > 16384) continue;
+    const record = plain.slice(match.index, end).replace(/\\"/g, '"');
+    if (!/\bHTTP(?:\/\d(?:\.\d)?)?\s+401\b|"status"\s*:\s*401\b/.test(record) ||
+        !/"code"\s*:\s*"token_expired"/.test(record)) continue;
+    found = { status: 'expired_token_logged', server: /\bcodex_apps\b/.test(record) ? 'codex_apps' : null,
+      recorded_at: new Date(at).toISOString() };
+  }
+  return found;
+}
+function checkAuthLog(file, snapshot = null) {
+  const empty = status => ({ schema_version: 1, status, server: null, recorded_at: null,
+    authentication_verified: false });
+  let fd;
+  try {
+    const opened = openAuthLog(file); fd = opened.fd;
+    const st = opened.st;
+    let start = Math.max(0, st.size - AUTH_LOG_LIMIT);
+    if (snapshot) {
+      if (!['present', 'missing'].includes(snapshot.kind) || !Number.isFinite(snapshot.started)) return empty('unavailable');
+      if (snapshot.kind === 'present') {
+        if (snapshot.dev !== st.dev || snapshot.ino !== st.ino || !Number.isSafeInteger(snapshot.size) ||
+            snapshot.size < 0 || st.size < snapshot.size) return empty('unavailable');
+        start = snapshot.size;
+      } else start = 0;
+    }
+    // Automatic scan: first 256 KiB appended since launch (startup errors).
+    // Explicit scan: last 256 KiB of saved evidence. Neither is a live check.
+    const data = Buffer.alloc(Math.min(AUTH_LOG_LIMIT, st.size - start));
+    let used = 0, n;
+    while (used < data.length && (n = fs.readSync(fd, data, used, data.length - used, start + used)) > 0) used += n;
+    const found = authLogEvidence(data.subarray(0, used).toString('utf8'), snapshot ? snapshot.started - 5000 : 0);
+    return found ? { ...empty(found.status), ...found } : empty('no_match');
+  } catch (_) { return empty('unavailable'); }
+  finally { if (fd !== undefined) fs.closeSync(fd); }
+}
+function authAdvice(server) {
+  return server === 'codex_apps'
+    ? ['codex_apps reported an expired authentication token.', 'Refresh your ChatGPT sign-in when ready:']
+    : ['An MCP request reported an expired authentication token.', 'If the failed server is codex_apps, refresh ChatGPT sign-in:'];
+}
+function printAuthAdvice(server) {
+  for (const line of authAdvice(server)) console.error(`codex-termux: ${line}`);
+  console.error('  codex-termux logout');
+  console.error('  codex-termux login');
+  console.error('  codex-termux chatgpt');
+  if (!server) console.error('codex-termux: For another MCP server, use its authentication flow.');
+}
 function selection(data) {
   try {
     const text = readRegular(path.join(data, 'selection'));
@@ -304,7 +398,7 @@ function getJSON(url, timeout = 12000) {
       if (error) { req.destroy(); reject(error); } else resolve(value);
       agent.destroy();
     };
-    const req = https.get(url, { agent, headers: { Accept: 'application/json', 'User-Agent': 'codex-termux/0.3.0' } }, res => {
+    const req = https.get(url, { agent, headers: { Accept: 'application/json', 'User-Agent': 'codex-termux/0.3.1' } }, res => {
       if (res.statusCode !== 200) { res.resume(); finish(new Error(`registry returned HTTP ${res.statusCode}`)); return; }
       res.on('data', chunk => {
         total += chunk.length;
@@ -494,7 +588,11 @@ function proxy(extra, timeout, onReady, deps = {}) {
 async function main(args) {
   const [action, ...rest] = args;
   if (action === 'proxy') {
-    const [extra, timeout, cache, arch] = rest;
+    const [extra, timeout, cache, arch, authLog, authState] = rest;
+    if (authLog && authState) {
+      try { fs.writeFileSync(authState, JSON.stringify(authLogSnapshot(authLog)), { mode: 0o600, flag: 'wx' }); }
+      catch (_) { /* Optional, disposable advisory metadata; no startup failure. */ }
+    }
     const service = proxy(extra, Number(timeout), port => {
       process.stdout.write(`${port}\n`);
       if (cache) {
@@ -511,6 +609,30 @@ async function main(args) {
     // proxy alive until the wrapper exits; do not interpret that event as stop.
     process.on('SIGINT', () => {});
     service.server.on('error', () => { process.stderr.write('proxy listener failed\n'); process.exit(1); });
+    return;
+  }
+  if (action === 'auth-check' || action === 'auth-notice') {
+    const [file, option] = rest;
+    let snapshot = null;
+    if (action === 'auth-notice') {
+      try { snapshot = JSON.parse(readRegular(option)); } catch (_) { return; }
+      if (!snapshot || typeof snapshot !== 'object') return;
+    }
+    const result = checkAuthLog(file, snapshot);
+    if (action === 'auth-notice') {
+      if (result.status === 'expired_token_logged') printAuthAdvice(result.server);
+      return;
+    }
+    if (option === 'json') console.log(JSON.stringify(result));
+    else {
+      if (result.status === 'expired_token_logged') {
+        console.log(`Saved MCP token-expiry error: ${result.recorded_at}`);
+        printAuthAdvice(result.server);
+      } else if (result.status === 'no_match') console.log('No matching expired-token error in the scanned log tail.');
+      else console.log('Auth diagnostic log unavailable; no authentication conclusion.');
+      console.log('Saved log evidence only; current authentication was not verified.');
+    }
+    process.exitCode = result.status === 'expired_token_logged' ? 1 : result.status === 'unavailable' ? 3 : 0;
     return;
   }
   if (action === 'check-update') {
@@ -536,7 +658,8 @@ async function main(args) {
   fail('unknown internal operation');
 }
 module.exports = { stable, newer, privateDir, readRegular, atomic, selection, metadata, checkUpdate,
-  cleanEnv, probe, validatePackage, install, rollback, allowHosts, authority, proxy, main };
+  cleanEnv, probe, validatePackage, install, rollback, allowHosts, authority, proxy,
+  authLogSnapshot, authLogEvidence, checkAuthLog, main };
 if (require.main === module || module.id === '[stdin]') {
   main(process.argv.slice(2)).catch(error => { process.stderr.write(`codex-termux: ${error.message}\n`); process.exitCode = 1; });
 }
@@ -566,10 +689,10 @@ _codex_termux_complete() {
     COMPREPLY=($(compgen -W 'run chatgpt login login-api status logout doctor test setup manage completion help --help --version --wrapper-version --wrapper-info --wrapper-dry-run --wrapper-no-update --wrapper-color --wrapper-banner --wrapper-config --wrapper-no-config --wrapper-debug' -- "$cur")); return
   fi
   if [[ $action == manage ]]; then
-    if ((i == COMP_CWORD)); then COMPREPLY=($(compgen -W 'check update rollback self-update uninstall config help' -- "$cur")); return; fi
+    if ((i == COMP_CWORD)); then COMPREPLY=($(compgen -W 'check auth-check update rollback self-update uninstall config help' -- "$cur")); return; fi
     sub=${COMP_WORDS[i]}
     case $sub in
-      check) COMPREPLY=($(compgen -W '--json' -- "$cur")) ;;
+      check|auth-check) COMPREPLY=($(compgen -W '--json' -- "$cur")) ;;
       update)
         [[ $prev != --version ]] || return 0
         COMPREPLY=($(compgen -W '--check --json --yes --version' -- "$cur")) ;;
@@ -645,11 +768,12 @@ _codex_termux() {
           '--wrapper-debug:Show fixed diagnostic events')
       elif [[ $action == manage ]]; then
         if ((i == CURRENT)); then
-          label='maintenance'; choices=('check:Inspect local prerequisites' 'update:Check or install Codex npm runtime' 'rollback:Switch to the previous npm runtime' 'self-update:Update wrapper, completion and manual' 'uninstall:Remove wrapper package files' 'config:Show settings or example' 'help:Show help')
+          label='maintenance'; choices=('check:Inspect local prerequisites' 'auth-check:Inspect saved MCP token-expiry errors' 'update:Check or install Codex npm runtime' 'rollback:Switch to the previous npm runtime' 'self-update:Update wrapper, completion and manual' 'uninstall:Remove wrapper package files' 'config:Show settings or example' 'help:Show help')
         else
           sub=${words[i]}; label='maintenance option'
           case $sub in
             check) choices=('--json:Machine-readable local report') ;;
+            auth-check) choices=('--json:Machine-readable saved-log evidence') ;;
             update) [[ $prev != --version ]] || return 1; choices=('--check:Check only' '--json:JSON for --check' '--yes:Authorize installation' '--version:Select exact stable version') ;;
             rollback) choices=('--yes:Authorize rollback') ;;
             self-update|uninstall)
@@ -696,6 +820,8 @@ update_interval=86400
 color=auto
 banner=auto
 proxy_connect_timeout=10000
+auth_notice=auto
+# auth_log=/absolute/path/to/codex-tui.log
 # proxy_allow=example.com
 # codex_bin=/absolute/path/to/codex
 # ca_bundle=/absolute/path/to/cert.pem
@@ -750,6 +876,7 @@ maintenance() {
         example) config_example ;;
         show)
           printf 'auto_update=%s\nupdate_interval=%s\ncolor=%s\nbanner=%s\nproxy_connect_timeout=%s\n' "$auto_update" "$update_interval" "$color" "$banner" "$proxy_connect_timeout"
+          printf 'auth_notice=%s\n' "$auth_notice"
           say '# Overrides: paths and additional hosts are omitted from this summary.' ;;
         *) usage_error 'config accepts show or example' ;;
       esac
@@ -757,6 +884,11 @@ maintenance() {
     check)
       (($# == 0)) || [[ $# == 1 && $1 == --json ]] || usage_error 'check accepts only --json'
       info "${1:+json}"; return ;;
+    auth-check)
+      (($# == 0)) || [[ $# == 1 && $1 == --json ]] || usage_error 'auth-check accepts only --json'
+      require_termux
+      resolve_node || die "Node.js is required; run: $PROGRAM setup"
+      runtime auth-check "$auth_log" "${1:+json}"; return ;;
     self-update|uninstall)
       package_tool "$action" "$@"; return ;;
     update|rollback) ;;
@@ -898,7 +1030,7 @@ cleanup() {
     wait "$proxy_pid" 2>/dev/null || true
   fi
   if [[ -n $runtime_dir ]]; then
-    rm -f -- "$runtime_dir/proxy.log"
+    rm -f -- "$runtime_dir/proxy.log" "$runtime_dir/auth-state"
     rmdir -- "$runtime_dir" 2>/dev/null || true
   fi
   exit "$status"
@@ -925,7 +1057,7 @@ start_proxy() {
   trap 'interrupted HUP 129' HUP
   coproc CT_PROXY {
     unset OPENAI_API_KEY CODEX_API_KEY CODEX_ACCESS_TOKEN NODE_OPTIONS NODE_PATH
-    runtime proxy "$proxy_allow" "$proxy_connect_timeout" "$pending_cache" "$arch" 2>"$runtime_dir/proxy.log"
+    runtime proxy "$proxy_allow" "$proxy_connect_timeout" "$pending_cache" "$arch" "$auth_monitor_log" "$runtime_dir/auth-state" 2>"$runtime_dir/proxy.log"
   }
   proxy_pid=$CT_PROXY_PID; ready_fd=${CT_PROXY[0]}; write_fd=${CT_PROXY[1]}
   local port
@@ -956,6 +1088,16 @@ run_codex() {
     kill -0 "$child_pid" 2>/dev/null || break
   done
   child_pid=''
+  return "$status"
+}
+auth_session() {
+  local auth=$1 status=0; shift
+  run_codex "$auth" "$@" || status=$?
+  # Leave Codex's TTY and streams intact. A notice is emitted only after it exits,
+  # even if an MCP failure did not cause a nonzero Codex exit status.
+  if [[ -n $auth_monitor_log ]]; then
+    runtime auth-notice "$auth_monitor_log" "$runtime_dir/auth-state" || true
+  fi
   return "$status"
 }
 interactive_launch() {
@@ -1072,11 +1214,14 @@ main() {
     run_codex "$action" "$@"; return
   fi
   find_ca_bundle || die "Termux's CA bundle is missing; run: $PROGRAM setup"
-  if [[ $action == run || $action == chatgpt ]]; then consider_update "$@"; fi
+  if [[ $action == run || $action == chatgpt ]]; then
+    consider_update "$@"
+    if [[ $auth_notice == auto ]] && interactive_launch "$@"; then auth_monitor_log=$auth_log; fi
+  fi
   start_proxy
   case $action in
-    run) run_codex normal "$@" ;;
-    chatgpt) run_codex chatgpt "$@" ;;
+    run) auth_session normal "$@" ;;
+    chatgpt) auth_session chatgpt "$@" ;;
     login)
       if (($#)); then run_codex chatgpt login "$@"; else run_codex chatgpt login --device-auth; fi
       if [[ -n ${OPENAI_API_KEY:-}${CODEX_API_KEY:-}${CODEX_ACCESS_TOKEN:-} ]]; then note "API credential variables remain in this shell; use '$PROGRAM chatgpt'."; fi ;;

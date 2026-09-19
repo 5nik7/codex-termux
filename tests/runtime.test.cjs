@@ -6,6 +6,7 @@ const path = require('node:path');
 const os = require('node:os');
 const net = require('node:net');
 const events = require('node:events');
+const { spawnSync } = require('node:child_process');
 const rt = require('../src/runtime.cjs');
 
 function fixture(t) {
@@ -13,6 +14,74 @@ function fixture(t) {
   t.after(() => fs.rmSync(root, { recursive: true, force: true }));
   return root;
 }
+function expiredRecord(server = 'codex_apps', time = new Date().toISOString()) {
+  return time + ' ERROR codex_rmcp_client::event_notification_transport: ' + server + ': unexpected server response: HTTP 401: {\n' +
+    '  "error": {"code": "token_expired", "message": "private-fixture-never-echo"}\n}\n';
+}
+test('auth evidence requires an MCP warning/error, HTTP 401 and the exact expiry code', () => {
+  const record = expiredRecord();
+  assert.equal(rt.authLogEvidence(record).server, 'codex_apps');
+  assert.equal(rt.authLogEvidence(expiredRecord('')).server, null);
+  assert.equal(rt.authLogEvidence(record.replace(' ERROR ', ' INFO ')), null);
+  assert.equal(rt.authLogEvidence(record.replace('HTTP 401', 'HTTP 403')), null);
+  assert.equal(rt.authLogEvidence(record.replace('token_expired', 'invalid_api_key')), null);
+  assert.equal(rt.authLogEvidence(record.replace('codex_rmcp_client::event_notification_transport', 'user_tool')), null);
+  const info = new Date().toISOString() + ' INFO codex_core::tools: prompt mentions HTTP 401 {"code":"token_expired"} codex_apps\n';
+  assert.equal(rt.authLogEvidence(info), null);
+  assert.equal(rt.authLogEvidence(record.split('HTTP 401')[0] + '\n' + info), null);
+  assert.equal(rt.authLogEvidence(record, Date.now() + 60000), null);
+  assert.equal(rt.authLogEvidence(record.replace(' ERROR ', ' \x1b[31mERROR\x1b[0m ')).server, 'codex_apps');
+  assert.equal(rt.authLogEvidence(record.replaceAll('"', '\\"')).server, 'codex_apps');
+});
+test('automatic auth scan ignores old bytes and detects new errors without leaking records', t => {
+  const file = path.join(fixture(t), 'codex-tui.log');
+  fs.writeFileSync(file, expiredRecord());
+  const before = rt.authLogSnapshot(file);
+  assert.equal(rt.checkAuthLog(file, before).status, 'no_match');
+  fs.appendFileSync(file, expiredRecord());
+  const result = rt.checkAuthLog(file, before);
+  assert.equal(result.status, 'expired_token_logged');
+  assert.equal(result.authentication_verified, false);
+  assert.equal(JSON.stringify(result).includes('private-fixture'), false);
+  assert.equal(JSON.stringify(result).includes(file), false);
+});
+test('auth scan supports a newly created log and skips rotation/truncation', t => {
+  const file = path.join(fixture(t), 'codex-tui.log');
+  const missing = rt.authLogSnapshot(file);
+  assert.equal(missing.kind, 'missing');
+  fs.writeFileSync(file, expiredRecord());
+  assert.equal(rt.checkAuthLog(file, missing).status, 'expired_token_logged');
+  const before = rt.authLogSnapshot(file);
+  fs.renameSync(file, file + '.old');
+  fs.writeFileSync(file, expiredRecord());
+  assert.equal(rt.checkAuthLog(file, before).status, 'unavailable');
+  const current = rt.authLogSnapshot(file);
+  fs.truncateSync(file, 0);
+  assert.equal(rt.checkAuthLog(file, current).status, 'unavailable');
+});
+test('auth scanner is bounded and separates startup bytes from explicit saved-log tail', t => {
+  const file = path.join(fixture(t), 'codex-tui.log');
+  const before = rt.authLogSnapshot(file);
+  fs.writeFileSync(file, expiredRecord() + new Date().toISOString() + ' INFO codex_core: ' + 'x'.repeat(300000) + '\n');
+  assert.equal(rt.checkAuthLog(file, before).status, 'expired_token_logged');
+  assert.equal(rt.checkAuthLog(file).status, 'no_match');
+  fs.appendFileSync(file, expiredRecord());
+  assert.equal(rt.checkAuthLog(file).status, 'expired_token_logged');
+});
+test('auth scanner refuses special files, symlinks and auth.json without blocking', { timeout: 3000 }, t => {
+  const root = fixture(t), file = path.join(root, 'codex-tui.log');
+  fs.writeFileSync(file, expiredRecord());
+  const link = path.join(root, 'link'); fs.symlinkSync(file, link);
+  const fifo = path.join(root, 'fifo');
+  assert.equal(spawnSync('mkfifo', [fifo]).status, 0);
+  const credentials = path.join(root, 'auth.json'); fs.writeFileSync(credentials, expiredRecord());
+  for (const item of [root, link, fifo, credentials, 'relative.log']) {
+    assert.equal(rt.checkAuthLog(item).status, 'unavailable');
+    assert.equal(rt.authLogSnapshot(item).kind, 'unavailable');
+  }
+  assert.equal(rt.checkAuthLog(path.join(root, 'absent')).status, 'unavailable');
+  assert.equal(rt.checkAuthLog(file, { kind: 'present', size: -1, started: Date.now() }).status, 'unavailable');
+});
 function meta(v = '0.153.4', arch = 'arm64') {
   return { version: v, arch, native: `@openai/codex-linux-${arch}`, alias: `npm:@openai/codex@${v}-linux-${arch}` };
 }

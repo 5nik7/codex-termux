@@ -28,6 +28,10 @@ def source_files():
         for file in base.rglob('*'):
             if any(part.startswith('.') for part in file.relative_to(base).parts):
                 continue
+            # A version directory such as 0.3.1 has a .1 suffix like a manual.
+            # Skip real directories; selected symlinks still fail validation below.
+            if file.is_dir() and not file.is_symlink():
+                continue
             if file.name == 'SHA256SUMS' or file.suffix in {'.sh', '.cjs', '.py', '.md', '.json', '.log', '.yml', '.yaml', '.1', '.in'}:
                 names.add(file.relative_to(ROOT).as_posix())
     for name in sorted(names):

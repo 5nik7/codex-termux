@@ -1,4 +1,77 @@
-# Validation: codex-termux 0.3.0
+# Validation: codex-termux
+
+## 0.3.1 candidate: authentication recovery notices
+
+Date: 2026-09-19. Base: `2832dc94a26d27b4616724fc3a5ae1f33f305b3b`,
+plus the authentication-notice patch. Native host: Linux x64, Node v24.19.0,
+Python 3.12.14; Bash, Zsh and groff checks ran on this host. Exact tool and
+input identities are recorded in
+[verification.json](docs/evidence/0.3.1/verification.json).
+
+The full `python3 -B tools/verify.py` passed **78 tests, no skips**:
+
+| Suite | Passed | Evidence |
+| --- | ---: | --- |
+| Node runtime | 18 | Existing proxy/runtime behavior plus bounded log parsing, old-entry exclusion, rotation/truncation and unsafe-file handling |
+| Bash wrapper | 30 | Existing launch/signal contracts plus real PTY notices, status preservation, opt-out, custom paths and private JSON |
+| Wrapper package | 27 | Isolated package lifecycle and recovery fixtures |
+| Release artifacts | 3 | Deterministic archives, both manifests and extracted-source installation |
+
+Generated-byte/checksum validation, shell/Node syntax, local documentation
+links, real Zsh completion and warning-free groff rendering also passed.
+The new log fixtures exercise the user's reported HTTP 401/token_expired
+payload inside expected tracing records. No live credentials, accounts,
+logs, phone installation or real MCP endpoint were used.
+
+The PTY regression caught an initially retained temporary auth-offset file;
+cleanup now removes it with the proxy log. A focused rerun and the full verifier
+passed after that correction. Recorded input hashes describe the corrected
+candidate, not that intermediate implementation.
+
+Final asset construction also exposed a collector bug: a directory named
+`0.3.1` was mistaken for a `.1` manual. The collector now skips real directories,
+and archive parity/install coverage checks that the new evidence file is included.
+The full verifier was rerun after this correction. The 18 Node runtime tests
+also passed separately under umask `077`.
+
+Limits: automatic notices run after eligible interactive sessions exit, using
+only the first 256 KiB appended to an existing diagnostic log. They are saved
+error evidence, not account-health verification. Disabled/differently formatted
+logs, custom paths, scan limits, rotation and concurrent writers can limit
+detection. Generic MCP records do not establish that codex_apps was the server.
+No real-account refresh behavior or native Android compatibility for the new
+notice is claimed. No new startup benchmark or performance number is claimed.
+
+Before release, verify on native Termux at a recorded candidate revision:
+
+1. Run the normal verifier and capture source identity/tool versions.
+2. Run `manage auth-check --json`. Record the fixed result only; never publish
+   raw private diagnostic logs or authentication files. An unavailable log is
+   not an authentication failure.
+3. Confirm healthy launches remain quiet and existing Ctrl+C behavior works.
+4. When a real expiry next occurs naturally, confirm that an existing log record
+   produces the recovery notice after exit. Do not alter credentials to induce
+   failure. Check custom log-path configuration if needed.
+
+### Native Termux follow-up: owner-reported checks
+
+The owner installed wrapper 0.3.1 on native Android Termux and
+confirmed it with `codex-termux --wrapper-version`. The selected
+Codex runtime reported `codex-cli 0.155.1`.
+
+The initial `manage auth-check --json` result was `unavailable`.
+After explicitly enabling Codex's plaintext TUI log with `log_dir`,
+the checker could read `codex-tui.log` and returned `no_match`.
+
+The owner subsequently confirmed persistent logging, normal launches,
+and the diagnostic check without the temporary log-path override.
+
+These results establish local installation and healthy-session log
+reading. They do not establish live authentication validity or
+recognition of a naturally occurring expired-token error. That
+real-error observation remains outstanding.
+
+## Historical 0.3.0 validation
 
 This document preserves the original pre-release Linux validation and records
 subsequent results separately. The original test counts, tool versions, hashes,
@@ -204,8 +277,9 @@ prepared; the published tag and assets should remain unchanged.
 
 - Native Termux tool versions, umask, detailed verifier output, and any optional
   skips associated with a recorded source revision.
-- A successful CI run for the permission-fixture PR, including the proposed
-  runtime check under umask `077`, once that workflow change is added.
+- A recorded CI run for the permission-fixture correction. Current main at
+  `2832dc94a26d27b4616724fc3a5ae1f33f305b3b` already includes the separate
+  runtime step under umask `077`; source presence alone is not run evidence.
 - Detailed native Termux smoke-test results for installed help, the manual,
   completion, and interactive Codex input/signals on a recorded wrapper version.
 - A complete hosted package download and lifecycle check in a disposable prefix,

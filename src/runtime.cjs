@@ -55,6 +55,92 @@ function atomic(file, content) {
     try { fs.unlinkSync(tmp); } catch (e) { if (e.code !== 'ENOENT') throw e; }
   }
 }
+
+// Existing diagnostic logs only. Never open the auth store, probe an account,
+// echo a log record, or capture Codex's terminal streams for this advisory.
+const AUTH_LOG_LIMIT = 256 * 1024;
+function openAuthLog(file) {
+  if (!path.isAbsolute(file) || /[\x00-\x1f\x7f]/.test(file) || path.basename(file) === 'auth.json') {
+    fail('unavailable auth diagnostic log');
+  }
+  const fd = fs.openSync(file, fs.constants.O_RDONLY | fs.constants.O_NOFOLLOW | fs.constants.O_NONBLOCK);
+  try {
+    const st = fs.fstatSync(fd);
+    if (!st.isFile() || !Number.isSafeInteger(st.size) || (process.getuid && st.uid !== process.getuid())) {
+      fail('unavailable auth diagnostic log');
+    }
+    return { fd, st };
+  } catch (error) { fs.closeSync(fd); throw error; }
+}
+function authLogSnapshot(file) {
+  const started = Date.now();
+  try {
+    const { fd, st } = openAuthLog(file);
+    fs.closeSync(fd);
+    return { kind: 'present', dev: st.dev, ino: st.ino, size: st.size, started };
+  } catch (error) {
+    return { kind: error.code === 'ENOENT' ? 'missing' : 'unavailable', started };
+  }
+}
+function authLogEvidence(text, since = 0) {
+  // A record starts at a tracing timestamp, including INFO/DEBUG boundaries.
+  // Merely mentioning the error in a prompt/tool INFO record is not evidence.
+  const plain = text.replace(/\x1b\[[0-9;]*m/g, '');
+  const header = /^(\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(?:\.\d+)?(?:Z|[+-]\d{2}:\d{2}))\s+(TRACE|DEBUG|INFO|WARN|ERROR)\s+([^\n]*)/gm;
+  const starts = [...plain.matchAll(header)];
+  let found = null;
+  for (let i = 0; i < starts.length; i++) {
+    const match = starts[i], at = Date.parse(match[1]);
+    if (!Number.isFinite(at) || at < since || !['WARN', 'ERROR'].includes(match[2])) continue;
+    if (!/\b(?:codex_rmcp_client(?:::|:)|codex_core::mcp_connection_manager:|rmcp::transport::)/.test(match[3])) continue;
+    const end = i + 1 < starts.length ? starts[i + 1].index : plain.length;
+    if (end - match.index > 16384) continue;
+    const record = plain.slice(match.index, end).replace(/\\"/g, '"');
+    if (!/\bHTTP(?:\/\d(?:\.\d)?)?\s+401\b|"status"\s*:\s*401\b/.test(record) ||
+        !/"code"\s*:\s*"token_expired"/.test(record)) continue;
+    found = { status: 'expired_token_logged', server: /\bcodex_apps\b/.test(record) ? 'codex_apps' : null,
+      recorded_at: new Date(at).toISOString() };
+  }
+  return found;
+}
+function checkAuthLog(file, snapshot = null) {
+  const empty = status => ({ schema_version: 1, status, server: null, recorded_at: null,
+    authentication_verified: false });
+  let fd;
+  try {
+    const opened = openAuthLog(file); fd = opened.fd;
+    const st = opened.st;
+    let start = Math.max(0, st.size - AUTH_LOG_LIMIT);
+    if (snapshot) {
+      if (!['present', 'missing'].includes(snapshot.kind) || !Number.isFinite(snapshot.started)) return empty('unavailable');
+      if (snapshot.kind === 'present') {
+        if (snapshot.dev !== st.dev || snapshot.ino !== st.ino || !Number.isSafeInteger(snapshot.size) ||
+            snapshot.size < 0 || st.size < snapshot.size) return empty('unavailable');
+        start = snapshot.size;
+      } else start = 0;
+    }
+    // Automatic scan: first 256 KiB appended since launch (startup errors).
+    // Explicit scan: last 256 KiB of saved evidence. Neither is a live check.
+    const data = Buffer.alloc(Math.min(AUTH_LOG_LIMIT, st.size - start));
+    let used = 0, n;
+    while (used < data.length && (n = fs.readSync(fd, data, used, data.length - used, start + used)) > 0) used += n;
+    const found = authLogEvidence(data.subarray(0, used).toString('utf8'), snapshot ? snapshot.started - 5000 : 0);
+    return found ? { ...empty(found.status), ...found } : empty('no_match');
+  } catch (_) { return empty('unavailable'); }
+  finally { if (fd !== undefined) fs.closeSync(fd); }
+}
+function authAdvice(server) {
+  return server === 'codex_apps'
+    ? ['codex_apps reported an expired authentication token.', 'Refresh your ChatGPT sign-in when ready:']
+    : ['An MCP request reported an expired authentication token.', 'If the failed server is codex_apps, refresh ChatGPT sign-in:'];
+}
+function printAuthAdvice(server) {
+  for (const line of authAdvice(server)) console.error(`codex-termux: ${line}`);
+  console.error('  codex-termux logout');
+  console.error('  codex-termux login');
+  console.error('  codex-termux chatgpt');
+  if (!server) console.error('codex-termux: For another MCP server, use its authentication flow.');
+}
 function selection(data) {
   try {
     const text = readRegular(path.join(data, 'selection'));
@@ -276,7 +362,11 @@ function proxy(extra, timeout, onReady, deps = {}) {
 async function main(args) {
   const [action, ...rest] = args;
   if (action === 'proxy') {
-    const [extra, timeout, cache, arch] = rest;
+    const [extra, timeout, cache, arch, authLog, authState] = rest;
+    if (authLog && authState) {
+      try { fs.writeFileSync(authState, JSON.stringify(authLogSnapshot(authLog)), { mode: 0o600, flag: 'wx' }); }
+      catch (_) { /* Optional, disposable advisory metadata; no startup failure. */ }
+    }
     const service = proxy(extra, Number(timeout), port => {
       process.stdout.write(`${port}\n`);
       if (cache) {
@@ -293,6 +383,30 @@ async function main(args) {
     // proxy alive until the wrapper exits; do not interpret that event as stop.
     process.on('SIGINT', () => {});
     service.server.on('error', () => { process.stderr.write('proxy listener failed\n'); process.exit(1); });
+    return;
+  }
+  if (action === 'auth-check' || action === 'auth-notice') {
+    const [file, option] = rest;
+    let snapshot = null;
+    if (action === 'auth-notice') {
+      try { snapshot = JSON.parse(readRegular(option)); } catch (_) { return; }
+      if (!snapshot || typeof snapshot !== 'object') return;
+    }
+    const result = checkAuthLog(file, snapshot);
+    if (action === 'auth-notice') {
+      if (result.status === 'expired_token_logged') printAuthAdvice(result.server);
+      return;
+    }
+    if (option === 'json') console.log(JSON.stringify(result));
+    else {
+      if (result.status === 'expired_token_logged') {
+        console.log(`Saved MCP token-expiry error: ${result.recorded_at}`);
+        printAuthAdvice(result.server);
+      } else if (result.status === 'no_match') console.log('No matching expired-token error in the scanned log tail.');
+      else console.log('Auth diagnostic log unavailable; no authentication conclusion.');
+      console.log('Saved log evidence only; current authentication was not verified.');
+    }
+    process.exitCode = result.status === 'expired_token_logged' ? 1 : result.status === 'unavailable' ? 3 : 0;
     return;
   }
   if (action === 'check-update') {
@@ -318,7 +432,8 @@ async function main(args) {
   fail('unknown internal operation');
 }
 module.exports = { stable, newer, privateDir, readRegular, atomic, selection, metadata, checkUpdate,
-  cleanEnv, probe, validatePackage, install, rollback, allowHosts, authority, proxy, main };
+  cleanEnv, probe, validatePackage, install, rollback, allowHosts, authority, proxy,
+  authLogSnapshot, authLogEvidence, checkAuthLog, main };
 if (require.main === module || module.id === '[stdin]') {
   main(process.argv.slice(2)).catch(error => { process.stderr.write(`codex-termux: ${error.message}\n`); process.exitCode = 1; });
 }

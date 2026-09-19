@@ -28,6 +28,11 @@ const result = {args, cwd:process.cwd(), tty:!!process.stdin.isTTY,
   api:!!process.env.OPENAI_API_KEY, access:!!process.env.CODEX_ACCESS_TOKEN,
   proxy:process.env.HTTPS_PROXY || '', ca:process.env.SSL_CERT_FILE || ''};
 if (process.env.FIXTURE_RECORD) fs.writeFileSync(process.env.FIXTURE_RECORD, JSON.stringify(result));
+if (process.env.FIXTURE_AUTH_LOG) {
+  fs.mkdirSync(require('node:path').dirname(process.env.FIXTURE_AUTH_LOG), {recursive:true});
+  fs.appendFileSync(process.env.FIXTURE_AUTH_LOG, new Date().toISOString() +
+    ' ERROR codex_rmcp_client::event_notification_transport: codex_apps: HTTP 401: {"error":{"code":"token_expired","message":"private-log-fixture"}}\n');
+}
 if (process.env.FIXTURE_READY) fs.writeFileSync(process.env.FIXTURE_READY, String(process.pid));
 if (process.env.FIXTURE_WAIT) {
   process.on('SIGTERM', ()=>{process.exit(143)});
@@ -76,6 +81,109 @@ class WrapperTests(unittest.TestCase):
 
     def assert_ok(self, result):
         self.assertEqual(result.returncode, 0, result.stderr)
+
+    def run_tty(self, args, env):
+        pid, master = pty.fork()
+        if pid == 0:
+            os.chdir(self.root)
+            os.execve(BASH, [BASH, str(WRAPPER), *args], env)
+        output = b''
+        try:
+            deadline = time.monotonic() + 6
+            while time.monotonic() < deadline:
+                if select.select([master], [], [], .1)[0]:
+                    try: chunk = os.read(master, 65536)
+                    except OSError: break
+                    if not chunk: break
+                    output += chunk
+            else:
+                self.fail('wrapper TTY fixture did not finish')
+            _, status = os.waitpid(pid, 0)
+            return os.waitstatus_to_exitcode(status), output.decode(errors='replace')
+        finally:
+            try: os.kill(pid, signal.SIGKILL)
+            except ProcessLookupError: pass
+            try: os.waitpid(pid, 0)
+            except ChildProcessError: pass
+            os.close(master)
+
+    def test_auth_notice_after_tty_exit_preserves_status_and_filters_old_errors(self):
+        log = self.home / '.codex/log/codex-tui.log'
+        for args, code in [([], '0'), (['chatgpt'], '37')]:
+            env = {**self.env, 'FIXTURE_AUTH_LOG': str(log), 'FIXTURE_EXIT': code}
+            status, output = self.run_tty(args, env)
+            self.assertEqual(status, int(code), output)
+            self.assertIn('codex_apps reported an expired authentication token.', output)
+            self.assertIn('codex-termux logout', output)
+            self.assertLess(output.index('"args"'), output.index('reported an expired'))
+            self.assertNotIn('private-log-fixture', output)
+            self.assertNotIn('fake-credential', output)
+            self.assertTrue(json.loads(self.record.read_text())['tty'])
+            self.assertEqual(list(self.temp.iterdir()), [])
+        status, output = self.run_tty(['chatgpt'], self.env)
+        self.assertEqual(status, 0, output)
+        self.assertNotIn('reported an expired', output)
+
+    def test_auth_notice_opt_out_passthrough_and_noninteractive_are_quiet(self):
+        log = self.root / 'custom.log'
+        env = {**self.env, 'CODEX_TERMUX_AUTH_LOG': str(log), 'FIXTURE_AUTH_LOG': str(log)}
+        for args, extra in [
+            (['chatgpt'], {'CODEX_TERMUX_AUTH_NOTICE': 'off'}),
+            (['chatgpt', 'exec', 'prompt'], {}),
+            (['chatgpt', '--json'], {}),
+            (['chatgpt', '--unknown-option'], {}),
+            (['login'], {}),
+        ]:
+            status, output = self.run_tty(args, {**env, **extra})
+            self.assertEqual(status, 0, output)
+            self.assertNotIn('reported an expired', output)
+        result = self.run_wrapper('chatgpt', env=env)
+        self.assert_ok(result)
+        self.assertEqual(result.stderr, '')
+        self.assertEqual(list(self.temp.iterdir()), [])
+
+    def test_auth_check_saved_evidence_json_is_private_and_needs_no_codex_or_ca(self):
+        log = self.root / 'custom.log'
+        env = {**self.env, 'CODEX_TERMUX_AUTH_LOG': str(log)}
+        self.fake.unlink()
+        (self.prefix / 'etc/tls/cert.pem').unlink()
+        result = self.run_wrapper('manage', 'auth-check', '--json', env=env)
+        self.assertEqual(result.returncode, 3, result.stderr)
+        self.assertEqual(json.loads(result.stdout)['status'], 'unavailable')
+        log.write_text('no matching diagnostic\n')
+        result = self.run_wrapper('manage', 'auth-check', '--json', env=env)
+        self.assert_ok(result)
+        self.assertEqual(json.loads(result.stdout)['status'], 'no_match')
+        log.write_text('2026-09-19T12:00:00Z ERROR codex_rmcp_client::event_notification_transport: '
+                       'codex_apps: HTTP 401: {"error":{"code":"token_expired","message":"private-log-fixture"}}\n')
+        result = self.run_wrapper('--wrapper-color', 'always', '--wrapper-banner', 'always',
+                                  'manage', 'auth-check', '--json', env=env)
+        self.assertEqual(result.returncode, 1, result.stderr)
+        report = json.loads(result.stdout)
+        self.assertEqual(report['status'], 'expired_token_logged')
+        self.assertFalse(report['authentication_verified'])
+        self.assertEqual(result.stderr, '')
+        self.assertNotIn('private-log-fixture', result.stdout)
+        self.assertNotIn(str(log), result.stdout)
+        self.assertFalse(self.record.exists())
+        self.assertEqual(list(self.temp.iterdir()), [])
+        self.assertEqual(self.run_wrapper('manage', 'auth-check', '--yes', env=env).returncode, 2)
+
+    def test_auth_notice_honors_codex_home_and_wrapper_log_configuration(self):
+        home = self.root / 'codex home'
+        log = home / 'log/codex-tui.log'
+        status, output = self.run_tty(['chatgpt'], {**self.env, 'CODEX_HOME': str(home), 'FIXTURE_AUTH_LOG': str(log)})
+        self.assertEqual(status, 0, output)
+        self.assertIn('reported an expired', output)
+        config = self.root / 'wrapper-config'
+        custom = self.root / 'configured log'
+        config.write_text(f'auth_notice=auto\nauth_log={custom}\n')
+        status, output = self.run_tty(['--wrapper-config', str(config), 'chatgpt'],
+                                      {**self.env, 'FIXTURE_AUTH_LOG': str(custom)})
+        self.assertEqual(status, 0, output)
+        self.assertIn('reported an expired', output)
+        config.write_text('auth_notice=invalid\n')
+        self.assertEqual(self.run_wrapper('--wrapper-config', str(config), '--help').returncode, 1)
 
     def test_help_and_wrapper_version_do_not_need_node_or_termux(self):
         env = {'HOME': str(self.home), 'PATH': '/nonexistent', 'COLUMNS': '30'}

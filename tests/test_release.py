@@ -62,6 +62,7 @@ class ReleaseTests(unittest.TestCase):
         self.assertEqual(zip_files, tar_files)
         source = extraction / prefix
         self.assertTrue((source / 'man/codex-termux.1').is_file())
+        self.assertTrue((source / 'docs/evidence/0.3.1/verification.json').is_file())
         subprocess.run([sys.executable, '-B', str(source / 'tools/build.py'), '--check'], check=True, stdout=subprocess.DEVNULL)
         destination = self.root / 'owned prefix'; destination.mkdir()
         home = self.root / 'owned home'; home.mkdir()
