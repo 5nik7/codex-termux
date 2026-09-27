@@ -428,12 +428,18 @@ COMP_WORDS=(codex-termux manage self-update --ch); COMP_CWORD=3
 _codex_termux_complete; printf '%s\n' "${COMPREPLY[@]}"
 COMP_WORDS=(codex-termux manage uninstall --color ne); COMP_CWORD=4
 _codex_termux_complete; printf '%s\n' "${COMPREPLY[@]}"
+COMP_WORDS=(codex-termux manage server sta); COMP_CWORD=3
+_codex_termux_complete; printf '%s\n' "${COMPREPLY[@]}"
+COMP_WORDS=(codex-termux manage server start --auth ch); COMP_CWORD=5
+_codex_termux_complete; printf '%s\n' "${COMPREPLY[@]}"
+COMP_WORDS=(codex-termux connect --ch); COMP_CWORD=2
+_codex_termux_complete; printf '%s\n' "${COMPREPLY[@]}"
 COMP_WORDS=(codex-termux chatgpt manage up); COMP_CWORD=3
 _codex_termux_complete; printf 'passed:%s\n' "${#COMPREPLY[@]}"
 '''
         result = subprocess.run([BASH, '--noprofile', '--norc', '-c', script], env={**self.env, 'COMPLETION': str(ROOT / 'completions/codex-termux.bash')}, capture_output=True, text=True, timeout=5)
         self.assertEqual(result.returncode, 0, result.stderr)
-        self.assertEqual(result.stdout, 'update\nzsh\nself-update\n--check\nnever\npassed:0\n')
+        self.assertEqual(result.stdout, 'update\nzsh\nself-update\n--check\nnever\nstart\nstatus\nchatgpt\n--chatgpt\npassed:0\n')
 
     def test_cached_update_prompt_decline_preserves_launch_and_no_update_suppresses_it(self):
         cache = self.home / '.cache/codex-termux'
@@ -521,6 +527,12 @@ words=(codex-termux manage uninstall --dry); CURRENT=4; _codex_termux
             until(b'READY_MARK\r\n')
             send('codex-termux manage up\t\n')
             until(b'COMPLETED:manage update')
+            send('codex-termux manage server star\t\n')
+            until(b'COMPLETED:manage server start')
+            send('codex-termux manage server start --auth ch\t\n')
+            until(b'COMPLETED:manage server start --auth chatgpt')
+            send('codex-termux connect --ch\t\n')
+            until(b'COMPLETED:connect --chatgpt')
             send('exit\n')
             _, status = os.waitpid(child, 0)
             self.assertEqual(os.waitstatus_to_exitcode(status), 0)

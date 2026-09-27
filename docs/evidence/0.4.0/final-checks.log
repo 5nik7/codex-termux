@@ -1,0 +1,13 @@
+Final checks UTC: 2026-09-27T02:41:20.662507+00:00
++ python3 tools/build.py --check
+Generated files and package checksums match source.
+exit: 0
++ python3 -B tools/check_docs.py
+Documentation links passed: 52 local targets (fragments not checked).
+exit: 0
++ git diff --check
+exit: 0
+PASS: all 26 checked source/payload inputs unchanged since full verifier.
+PASS: all 34 pre-existing source/test/tool/evidence files preserved except the two documented release-preparation edits.
+PASS: version-normalized wrapper SHA-256 matches reviewed 0.3.1 artifact: 4ffb5a7cc1d0ee51678bb00951c7598dddc6832df1f867def9a674e2e3d0efde
+PASS: native_server_smoke.py Python syntax; smoke not executed.

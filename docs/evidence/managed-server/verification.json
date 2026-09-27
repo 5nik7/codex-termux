@@ -1,0 +1,89 @@
+{
+  "schema_version": 1,
+  "date": "2026-09-27",
+  "base_commit": "60da03eb3078b19cab2c438f25f21ecd08878f4d",
+  "branch": "feat/managed-app-server",
+  "wrapper_version": "0.3.1",
+  "host": "Native Android ARM64 / Termux",
+  "node": "v26.4.0",
+  "python": "3.14.6",
+  "bash": "5.3.20",
+  "zsh": "5.9.2",
+  "suites": {
+    "runtime": 18,
+    "wrapper": 30,
+    "managed_server": 19,
+    "package": 27,
+    "release": 3
+  },
+  "checks": [
+    "python3 tools/build.py --check",
+    "python3 -B tools/verify.py",
+    "git diff --check"
+  ],
+  "optional_skips": [
+    "groff unavailable; manual rendering not tested"
+  ],
+  "native_transport": {
+    "codex_version": "0.157.1",
+    "script": "tools/native_server_smoke.py",
+    "credentials": "fake API key; empty owned HOME and CODEX_HOME",
+    "passed": [
+      "paired runtime validation",
+      "detached shell HUP",
+      "authenticated WebSocket upgrade and unauthenticated rejection",
+      "initialize RPC",
+      "deliberate client socket exit",
+      "server and proxy preservation",
+      "connect --help parsing",
+      "verified stop closes all owned ports"
+    ],
+    "not_tested": [
+      "live account",
+      "model response",
+      "shell execution",
+      "interactive resume/fork",
+      "force-stop or reboot survival",
+      "Android battery-pressure longevity"
+    ],
+    "evidence_date": "2026-09-26",
+    "status": "Historical evidence from the previous candidate; not rerun for these review fixes.",
+    "source_evidence": "docs/history/managed-server-2026-09-26/verification.json"
+  },
+  "input_sha256": {
+    "VERSION": "79e3f22ca37c7fdf4c29ae3648d6b008c3cb6547260a453409275470919dc674",
+    "src/frontend.sh": "81a8b2b923902a3eaa5f2a4ddd68d73a22ad46c4693ac8494bf3b4fdc5f4ab1f",
+    "src/runtime.cjs": "deba6c6b77a3b58d1aa850e767a98576a697e29a96b9f626a37d3d873cd482ca",
+    "completions/codex-termux.bash": "125033720b6d087d33c32220fce754fbe1b7d51f0300544ac8451dc0f8a91b98",
+    "completions/_codex-termux": "f67f8c2351a127461cd2b973f3f6ec1c47c0c64d70ed6ead9b97e785053cd7a8",
+    "man/codex-termux.1.in": "46aaf89e53ffb4b8b01d0e829ca80c91f7a93e4b49001c0b5749b04dd55af594",
+    "bin/codex-termux": "4ffb5a7cc1d0ee51678bb00951c7598dddc6832df1f867def9a674e2e3d0efde",
+    "man/codex-termux.1": "f75b66ab057de53d86fc0115b9771aebc41e85a49c7d59410bf389238d637476",
+    "README.md": "ae172cbe560ac739fc2c2ff0431c5ce33d13f40e94951fdd97404a80403002c6",
+    "CHANGELOG.md": "7e06c62ec0ab2fbe5611b2f65b0b4194d2312eb5ea53c9872dd9f62c28690bf9",
+    "RELEASING.md": "19ec7fa90d4f77cbfae8dd7f69b17c04fe9935464f09e43bb832de4102693438",
+    "PACKAGE-SHA256SUMS": "cdbdaf6564020dda0573c065414bd52e6009b8517c2dded7020fdc172abf94ee",
+    "tools/build.py": "576ddef86559b89bba0a69ca8612364977cc5e71975640acfa7860c1f8c3c6ad",
+    "tools/verify.py": "af29af777dda46b1f74df78f056442de75ded51c512c7b410a88d9423bdabeea",
+    "tools/native_server_smoke.py": "e8bf7c11a5e1758b8533df9e4c67a827e761762bb2846463ea1da6c94947a55e",
+    "tests/runtime.test.cjs": "db9c706815f8d3573ba96c8218230b0454a2a919d59aa65ae20dd98972a20cfc",
+    "tests/test_wrapper.py": "ad0cf8c84621751ab7debed0901168c68a2dbd1a7d2bc519d1dff1b3c3ba8e08",
+    "tests/test_server.py": "cf55e2e15d9cca526e1f1363d0a4cfd38eccff7b3c5aa5934e92b07360557ea8",
+    "tests/test_package.py": "daf687e088b4b0146d2a113f6433d40b80dc5d10bae48670bda79bb0278c7b9e",
+    "tests/test_release.py": "da6586fd8f638ce3e0b89842bf2025cbe16b6bbf489120ab7d08a0cbc9fcaa1d"
+  },
+  "focused_tests": {
+    "passed": 4,
+    "suite": "tests/test_server.py",
+    "tests": [
+      "ServerTests.test_malformed_control_proof_is_rejected_without_lifecycle_damage",
+      "ServerTests.test_connect_preserves_codex_delimiter_and_literal_arguments",
+      "ServerTests.test_connect_default_and_explicit_cwd_before_delimiter",
+      "ServerTests.test_incompatible_options_and_reserved_port"
+    ]
+  },
+  "review_fixes": [
+    "Validate canonical hex MAC encoding and fixed byte length before timingSafeEqual; malformed HTTP proofs reject without supervisor/proxy failure.",
+    "Consume only the optional wrapper delimiter; stop scanning options at Codex delimiter and preserve literal arguments and cwd selection."
+  ]
+}

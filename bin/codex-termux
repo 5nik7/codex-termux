@@ -3,7 +3,7 @@
 set -Eeuo pipefail
 
 readonly PROGRAM=${0##*/}
-readonly WRAPPER_VERSION=0.3.1
+readonly WRAPPER_VERSION=0.4.0
 runtime_dir='' proxy_pid='' child_pid='' proxy_url='' node_bin='' ca_bundle=''
 codex_kind='' codex_launcher='' installed_version='' selected_runtime=system previous_runtime=-
 color=auto banner=auto auto_update=ask update_interval=86400 proxy_connect_timeout=10000
@@ -124,6 +124,7 @@ usage() {
   printf '\n%sCommands%s\n' "$heading_color" "$reset"
   help_row "$command_color" run 'Launch Codex (default).'
   help_row "$command_color" chatgpt 'Launch without API-key variables.'
+  help_row "$command_color" 'connect [--chatgpt] [--] ...' 'Attach to the managed app server.'
   help_row "$command_color" login 'ChatGPT device login by default.'
   help_row "$command_color" login-api 'Use OPENAI_API_KEY on stdin.'
   help_row "$command_color" status 'Show Codex authentication status.'
@@ -150,6 +151,10 @@ usage() {
   help_row "$command_color" 'manage update [--check]' 'Update the Codex npm runtime.'
   help_row "$option_color" '  --check [--json]' 'Check npm updates without installing.'
   help_row "$option_color" '  [--yes] [--version X.Y.Z]' 'Authorize/pin npm installation.'
+  help_row "$command_color" 'manage server start' 'Detach server and proxy (opt-in).'
+  help_row "$option_color" '  --auth inherited|chatgpt' 'Required start-time authentication mode.'
+  help_row "$option_color" '  [--port N]' 'Loopback port; default temporary port.'
+  help_row "$command_color" 'manage server status|stop' 'Verify ownership and inspect/stop.'
   help_row "$command_color" 'manage rollback' 'Restore the previous npm runtime.'
   help_row "$command_color" 'manage self-update [--check]' 'Update this wrapper package.'
   help_row "$command_color" 'manage uninstall [--dry-run]' 'Remove wrapper package files.'
@@ -398,7 +403,7 @@ function getJSON(url, timeout = 12000) {
       if (error) { req.destroy(); reject(error); } else resolve(value);
       agent.destroy();
     };
-    const req = https.get(url, { agent, headers: { Accept: 'application/json', 'User-Agent': 'codex-termux/0.3.1' } }, res => {
+    const req = https.get(url, { agent, headers: { Accept: 'application/json', 'User-Agent': 'codex-termux/0.4.0' } }, res => {
       if (res.statusCode !== 200) { res.resume(); finish(new Error(`registry returned HTTP ${res.statusCode}`)); return; }
       res.on('data', chunk => {
         total += chunk.length;
@@ -585,7 +590,321 @@ function proxy(extra, timeout, onReady, deps = {}) {
   server.listen(0, '127.0.0.1', () => onReady(server.address().port));
   return { server, close() { for (const socket of sockets) socket.destroy(); server.close(); } };
 }
+// Managed app server: private per-CODEX_HOME state and an authenticated live
+// supervisor, never PID-based adoption or PID-based stop. Same-user state is
+// trusted; surviving state after SIGKILL requires owner review.
+const SERVER_FALLBACK = 'Use: codex-termux --wrapper-no-update run --no-daemon';
+const AUTH_KEYS = ['OPENAI_API_KEY', 'CODEX_API_KEY', 'CODEX_ACCESS_TOKEN'];
+const delay = ms => new Promise(resolve => setTimeout(resolve, ms));
+function serverFail(message) { fail(`${message}. ${SERVER_FALLBACK}`); }
+function secretFile(file) {
+  const st = fs.lstatSync(file);
+  if (!st.isFile() || st.isSymbolicLink() || (st.mode & 0o077) || st.uid !== process.getuid()) serverFail('Unsafe server state');
+  return readRegular(file, 65536);
+}
+function serverRoot(data) {
+  // Resolve existing CODEX_HOME aliases without opening credentials or config.
+  const home = process.env.CODEX_HOME || path.join(process.env.HOME, '.codex');
+  if (!path.isAbsolute(home) || /[\x00-\x1f\x7f]/.test(home)) serverFail('CODEX_HOME must be an absolute path without control characters');
+  const canonical = fs.realpathSync(home);
+  privateDir(data);
+  const parent = path.join(data, 'servers'); privateDir(parent);
+  const root = path.join(parent, crypto.createHash('sha256').update(canonical).digest('hex').slice(0, 32));
+  privateDir(root);
+  return { root, home: canonical, active: path.join(root, 'active') };
+}
+function mac(secret, value) { return crypto.createHmac('sha256', secret).update(value).digest('hex'); }
+function equalSecret(a, b) {
+  // All callers compare SHA-256 MACs in canonical lowercase hex. Validate the
+  // encoding before decoding: equal JS string lengths need not mean equal bytes.
+  return typeof a === 'string' && typeof b === 'string' && a.length === 64 && b.length === 64 &&
+    /^[a-f0-9]{64}$/.test(a) && /^[a-f0-9]{64}$/.test(b) &&
+    crypto.timingSafeEqual(Buffer.from(a, 'hex'), Buffer.from(b, 'hex'));
+}
+function authIdentity(mode, secret) {
+  return mac(secret, JSON.stringify([mode, ...AUTH_KEYS.map(k => mode === 'chatgpt' ? null : process.env[k] ?? null)]));
+}
+function runtimeIdentity(command, version) {
+  const entries = command.map(file => {
+    const real = fs.realpathSync(file), s = fs.statSync(real);
+    return [real, s.dev, s.ino, s.size, s.mtimeMs];
+  });
+  // For npm launches validate the exact native pairing and include its identity.
+  if (command.length === 2 && path.basename(command[1]) === 'codex.js') {
+    const root = path.resolve(path.dirname(command[1]), '../../../..');
+    const arch = process.arch === 'arm64' ? 'arm64' : 'x64';
+    validatePackage(root, { version, arch, native: `@openai/codex-linux-${arch}`, alias: `npm:@openai/codex@${version}-linux-${arch}` });
+    const triple = arch === 'arm64' ? 'aarch64' : 'x86_64';
+    const binary = path.join(root, 'node_modules', '@openai', `codex-linux-${arch}`, 'vendor', `${triple}-unknown-linux-musl`, 'bin', 'codex');
+    const s = fs.statSync(binary);
+    entries.push([fs.realpathSync(binary), s.dev, s.ino, s.size, s.mtimeMs]);
+  }
+  return { version, digest: crypto.createHash('sha256').update(JSON.stringify(entries)).digest('hex') };
+}
+function websocketCheck(port, token) {
+  return new Promise((resolve, reject) => {
+    const key = crypto.randomBytes(16).toString('base64');
+    const expected = crypto.createHash('sha1').update(key + '258EAFA5-E914-47DA-95CA-C5AB0DC85B11').digest('base64');
+    const headers = { Connection: 'Upgrade', Upgrade: 'websocket', 'Sec-WebSocket-Version': '13', 'Sec-WebSocket-Key': key };
+    if (token) headers.Authorization = `Bearer ${token}`;
+    let socket, done = false;
+    const finish = (error, value) => {
+      if (done) return; done = true; clearTimeout(timer); req.destroy(); socket?.destroy();
+      error ? reject(new Error('WebSocket authentication check failed')) : resolve(value);
+    };
+    const req = http.request({ host: '127.0.0.1', port, path: '/', headers, agent: false });
+    const timer = setTimeout(() => finish(true), 1200);
+    req.on('upgrade', (res, sock) => {
+      socket = sock; sock.on('error', () => {});
+      finish(res.statusCode !== 101 || res.headers['sec-websocket-accept'] !== expected, 101);
+    });
+    req.on('response', res => { res.resume(); finish(false, res.statusCode); });
+    req.on('error', () => finish(true)); req.end();
+  });
+}
+async function authenticatedServer(port, token) {
+  if (await websocketCheck(port, token) !== 101 || await websocketCheck(port, null) !== 401) throw new Error('Authentication not enforced');
+}
+function controlRequest(state, secret, operation) {
+  return new Promise((resolve, reject) => {
+    const nonce = crypto.randomBytes(24).toString('hex');
+    const route = `/${operation}/${nonce}`;
+    let done = false;
+    const finish = (error, value) => {
+      if (done) return; done = true; clearTimeout(timer); req.destroy();
+      error ? reject(new Error('Owned supervisor unavailable or state mismatched; state retained; no PID was signalled')) : resolve(value);
+    };
+    const req = http.request({ host: '127.0.0.1', port: state.controlPort, path: route, method: 'POST', agent: false,
+      headers: { 'X-Codex-Termux-Proof': mac(secret, route) } }, res => {
+      let text = '';
+      res.on('data', chunk => { text += chunk; if (text.length > 16384) finish(true); });
+      res.on('error', () => finish(true));
+      res.on('end', () => {
+        if (done) return;
+        try {
+          if (res.statusCode !== 200 || !equalSecret(res.headers['x-codex-termux-proof'], mac(secret, nonce + text))) return finish(true);
+          const reply = JSON.parse(text);
+          if (JSON.stringify(reply.state) !== JSON.stringify(state)) return finish(true);
+          finish(false, reply);
+        } catch (_) { finish(true); }
+      });
+    });
+    const timer = setTimeout(() => finish(true), 4000);
+    req.on('error', () => finish(true)); req.end();
+  });
+}
+function entryExists(file) {
+  try { fs.lstatSync(file); return true; }
+  catch (error) { if (error.code === 'ENOENT') return false; throw error; }
+}
+function readServer(active) {
+  const st = fs.lstatSync(active);
+  if (!st.isDirectory() || st.isSymbolicLink() || (st.mode & 0o077) || st.uid !== process.getuid()) serverFail('Unsafe server instance directory');
+  const state = JSON.parse(secretFile(path.join(active, 'state.json')));
+  if (state.schema !== 1 || !/^[a-f0-9]{32}$/.test(state.id) ||
+      ![state.controlPort, state.port, state.proxyPort].every(p => Number.isInteger(p) && p > 0 && p < 65536)) serverFail('Invalid server state');
+  return { state, secret: secretFile(path.join(active, 'control.token')).trim(), token: secretFile(path.join(active, 'ws.token')).trim() };
+}
+function portOpen(port) {
+  return new Promise(resolve => {
+    const sock = net.connect({ host: '127.0.0.1', port });
+    const finish = value => { sock.destroy(); resolve(value); };
+    sock.setTimeout(500, () => finish(true)); // uncertainty retains recovery state
+    sock.on('connect', () => finish(true));
+    sock.on('error', error => finish(error.code !== 'ECONNREFUSED'));
+  });
+}
+async function serverWorker(active) {
+  process.umask(0o077);
+  const cfg = JSON.parse(secretFile(path.join(active, 'launch.json')));
+  const secret = secretFile(path.join(active, 'control.token')).trim();
+  const token = secretFile(path.join(active, 'ws.token')).trim();
+  let service, control, child, state, appPort, closing = false, ready = false;
+  const result = (ok, message) => atomic(path.join(cfg.root, `result-${cfg.id}.json`), JSON.stringify({ ok, message }));
+  const cleanup = async (message, ok = false) => {
+    if (closing) return; closing = true;
+    clearTimeout(deadline);
+    // Signal only the direct child handle created by this supervisor. The npm
+    // launcher forwards TERM to its native child. No stored PID is used here.
+    if (child && child.exitCode === null && child.signalCode === null) {
+      child.kill('SIGTERM');
+      const until = Date.now() + 5000;
+      while (child.exitCode === null && child.signalCode === null && Date.now() < until) await delay(50);
+      if (child.exitCode === null && child.signalCode === null) {
+        if (!ready) result(false, 'Server did not terminate; private recovery state retained');
+        ready = false; closing = false;
+        return; // retain supervisor/proxy/control for a later reviewed stop
+      }
+    }
+    // A launcher can die while its native child survives. Never declare that
+    // stopped, discard its token, or infer a PID to kill from the open port.
+    if (child && appPort && await portOpen(appPort)) {
+      if (!ready) result(false, 'Child exited but app port remains occupied; recovery state retained');
+      ready = false; closing = false; return;
+    }
+    service?.close(); control?.close();
+    // Only known files in the directory exclusively created by this start.
+    for (const name of ['state.json', 'launch.json', 'worker.cjs', 'ws.token', 'control.token']) {
+      try { fs.unlinkSync(path.join(active, name)); } catch (e) { if (e.code !== 'ENOENT') return; }
+    }
+    try { fs.rmdirSync(active); } catch (_) { return; }
+    if (!ready) result(ok, message);
+    process.exit(0);
+  };
+  const deadline = setTimeout(() => cleanup('Startup timed out; app-server WebSocket capability or authentication unavailable'), 12000);
+  process.on('SIGHUP', () => {});
+  process.on('SIGINT', () => {});
+  process.on('SIGTERM', () => cleanup('Startup interrupted'));
+  try {
+    if (JSON.stringify(runtimeIdentity(cfg.command, cfg.runtime.version)) !== JSON.stringify(cfg.runtime)) throw new Error();
+    let proxyPort;
+    await new Promise((resolve, reject) => {
+      service = proxy(cfg.allow, cfg.timeout, p => { proxyPort = p; resolve(); });
+      service.server.on('error', reject);
+    });
+    if (closing) return;
+    // Select a temporary loopback port when omitted. The unavoidable close/bind
+    // race fails closed: authentication and the child's liveness are checked.
+    let port = cfg.port;
+    const reserve = net.createServer();
+    await new Promise((resolve, reject) => { reserve.once('error', reject); reserve.listen(port, '127.0.0.1', resolve); });
+    port = reserve.address().port;
+    await new Promise(resolve => reserve.close(resolve));
+    if (closing) return;
+    if (port === 4500) throw new Error();
+    const env = { ...process.env, CODEX_HOME: cfg.home,
+      HTTPS_PROXY: `http://127.0.0.1:${proxyPort}`, https_proxy: `http://127.0.0.1:${proxyPort}`,
+      NO_PROXY: '127.0.0.1,localhost', no_proxy: '127.0.0.1,localhost',
+      CODEX_CA_CERTIFICATE: cfg.ca, SSL_CERT_FILE: cfg.ca };
+    if (cfg.auth === 'chatgpt') for (const k of AUTH_KEYS) delete env[k];
+    delete env.CODEX_TERMUX_SERVER_TOKEN;
+    appPort = port;
+    child = cp.spawn(cfg.command[0], [...cfg.command.slice(1), 'app-server', '--listen', `ws://127.0.0.1:${port}`,
+      '--ws-auth', 'capability-token', '--ws-token-file', path.join(active, 'ws.token')], { env, stdio: 'ignore' });
+    child.on('error', () => cleanup('App-server could not execute'));
+    child.on('exit', () => { if (!closing) cleanup('App-server exited; required WebSocket flags may be unavailable'); });
+    control = http.createServer({ maxHeaderSize: 4096, requestTimeout: 2000, headersTimeout: 2000 }, (req, res) => {
+      if (!state || req.method !== 'POST' || !/^\/(status|stop)\/[a-f0-9]{48}$/.test(req.url) ||
+          !equalSecret(req.headers['x-codex-termux-proof'], mac(secret, req.url))) {
+        res.writeHead(403); res.end(); return;
+      }
+      const text = JSON.stringify({ state, ready, closing });
+      res.setHeader('X-Codex-Termux-Proof', mac(secret, req.url.split('/')[2] + text));
+      res.end(text);
+      if (req.url.startsWith('/stop/')) res.on('finish', () => cleanup('Stopped'));
+    });
+    control.maxConnections = 16;
+    control.setTimeout(2000, socket => socket.destroy());
+    control.on('clientError', (_e, sock) => sock.destroy());
+    await new Promise((resolve, reject) => { control.once('error', reject); control.listen(0, '127.0.0.1', resolve); });
+    state = { schema: 1, id: cfg.id, pid: process.pid, childPid: child.pid, port, proxyPort,
+      controlPort: control.address().port, home: cfg.home, auth: cfg.auth, authIdentity: cfg.authIdentity, runtime: cfg.runtime };
+    atomic(path.join(active, 'state.json'), JSON.stringify(state));
+    while (!closing) {
+      try { await authenticatedServer(port, token); break; } catch (_) { await delay(100); }
+    }
+    if (closing) return;
+    if (child.exitCode !== null || child.signalCode !== null) return cleanup('App-server exited during readiness');
+    ready = true; clearTimeout(deadline); result(true, 'Authenticated server ready');
+  } catch (_) { await cleanup('Startup failed; check port availability, runtime pairing and WebSocket capabilities'); }
+}
+async function managedServer(args) {
+  const [operation, data, wrapper, version, auth, portText, allow, timeout, ca, ...command] = args;
+  const location = serverRoot(data), { root, active, home } = location;
+  if (operation === 'status') console.log(`Instance: ${root}`);
+  if (operation === 'start') {
+    const runtime = runtimeIdentity(command, version);
+    const port = Number(portText);
+    if (!['inherited', 'chatgpt'].includes(auth) || !Number.isInteger(port) || port < 0 || port > 65535 || port === 4500) serverFail('Invalid server auth mode or port (4500 is reserved for external use)');
+    try { fs.mkdirSync(active, { mode: 0o700 }); }
+    catch (_) { serverFail('Instance already exists or startup is concurrent; use manage server status; surviving state requires review'); }
+    const id = crypto.randomBytes(16).toString('hex');
+    let launched = false;
+    try {
+      const secret = crypto.randomBytes(32).toString('hex');
+      fs.writeFileSync(path.join(active, 'control.token'), secret + '\n', { flag: 'wx', mode: 0o600 });
+      fs.writeFileSync(path.join(active, 'ws.token'), crypto.randomBytes(32).toString('hex') + '\n', { flag: 'wx', mode: 0o600 });
+      const source = fs.readFileSync(wrapper, 'utf8');
+      const marker = "<<'CODEX_TERMUX_NODE'\n";
+      const begin = source.indexOf(marker), end = source.indexOf('\nCODEX_TERMUX_NODE\n', begin);
+      if (begin < 0 || end < 0) throw new Error();
+      fs.writeFileSync(path.join(active, 'worker.cjs'), source.slice(begin + marker.length, end), { flag: 'wx', mode: 0o600 });
+      atomic(path.join(active, 'launch.json'), JSON.stringify({ root, home, id, command, runtime, auth,
+        authIdentity: authIdentity(auth, secret), port, allow, timeout: Number(timeout), ca }));
+      const worker = cp.spawn(process.execPath, [path.join(active, 'worker.cjs'), 'server-worker', active],
+        { detached: true, stdio: 'ignore', env: { ...process.env, NODE_OPTIONS: '', NODE_PATH: '' } });
+      await new Promise((resolve, reject) => { worker.once('spawn', resolve); worker.once('error', reject); });
+      worker.unref(); launched = true;
+      const resultPath = path.join(root, `result-${id}.json`), until = Date.now() + 20000;
+      while (Date.now() < until) {
+        try {
+          const result = JSON.parse(secretFile(resultPath)); fs.unlinkSync(resultPath);
+          if (!result.ok) serverFail(result.message);
+          const live = readServer(active);
+          if (live.state.id !== id) serverFail('Started instance ended and was replaced; inspect status before connecting');
+          const proof = await controlRequest(live.state, live.secret, 'status');
+          if (!proof.ready || proof.closing) serverFail('Server left ready state during startup; inspect status');
+          console.log(`Server started: ws://127.0.0.1:${live.state.port} | Codex ${version} | auth ${auth}`);
+          console.log(`Instance: ${root}`);
+          console.log('Authentication is retained from server start; clients do not replace it.'); return;
+        } catch (e) { if (e.code !== 'ENOENT') throw e; }
+        await delay(100);
+      }
+      serverFail('Supervisor startup outcome unknown; state retained; inspect manage server status');
+    } catch (error) {
+      if (!launched) {
+        for (const name of ['launch.json', 'worker.cjs', 'control.token', 'ws.token']) {
+          try { fs.unlinkSync(path.join(active, name)); } catch (_) {}
+        }
+        try { fs.rmdirSync(active); } catch (_) {}
+      }
+      throw error;
+    }
+  }
+  if (!entryExists(active)) {
+    if (operation === 'status' || operation === 'stop') { console.log(`Server stopped. Instance: ${root}`); return; }
+    serverFail('No managed server; use manage server start --auth inherited or --auth chatgpt');
+  }
+  const { state, secret, token } = readServer(active);
+  // Verify the complete live record before sending a destructive request or
+  // sending the WebSocket token to a port recorded on disk.
+  const live = await controlRequest(state, secret, 'status');
+  if (operation === 'stop') {
+    await controlRequest(state, secret, 'stop');
+    const until = Date.now() + 6500;
+    while (entryExists(active) && Date.now() < until) await delay(100);
+    if (entryExists(active)) serverFail('Stop incomplete; recovery state retained');
+    console.log('Managed server and proxy stopped.'); return;
+  }
+  if (!live.ready || live.closing) serverFail('Managed server is not ready: starting, stopping, or recovery required');
+  await authenticatedServer(state.port, token);
+  let selected;
+  try { selected = runtimeIdentity(command, version); } catch (_) { selected = null; }
+  const matches = JSON.stringify(selected) === JSON.stringify(state.runtime);
+  if (operation === 'status') {
+    console.log(`Server running: ws://127.0.0.1:${state.port} | authenticated WebSocket verified`);
+    console.log(`Auth: ${state.auth} (start-time environment); Codex ${state.runtime.version}; runtime ${state.runtime.digest.slice(0, 16)}`);
+    console.log(`Selected runtime: ${selected ? 'Codex ' + selected.version + '; ' : ''}${matches ? 'matches' : 'MISMATCH or unavailable; connect refused; stop explicitly before restarting'}`);
+    if (!matches) process.exitCode = 1;
+    return;
+  }
+  if (operation !== 'connect') serverFail('Unknown server operation');
+  if (!matches) serverFail('Running server runtime differs from the selected runtime; stop explicitly before restarting');
+  if (state.auth !== auth || !equalSecret(state.authIdentity, authIdentity(auth, secret))) serverFail('Server authentication mode or credential environment differs; client cannot change server authentication');
+  // Internal machine output to the frontend: URL and token *path*, never token.
+  console.log(`ws://127.0.0.1:${state.port}\n${path.join(active, 'ws.token')}`);
+}
+
 async function main(args) {
+  if (args[0] === "server-worker") return serverWorker(args[1]);
+  if (args[0] === "server") {
+    try { return await managedServer(args.slice(1)); }
+    catch (error) {
+      // Filesystem and child errors can contain arbitrary private paths.
+      if (!error.message.includes(SERVER_FALLBACK) && !error.message.startsWith("Owned supervisor")) serverFail("Server operation failed; unsafe, missing or mismatched state/runtime");
+      throw error;
+    }
+  }
   const [action, ...rest] = args;
   if (action === 'proxy') {
     const [extra, timeout, cache, arch, authLog, authState] = rest;
@@ -659,7 +978,7 @@ async function main(args) {
 }
 module.exports = { stable, newer, privateDir, readRegular, atomic, selection, metadata, checkUpdate,
   cleanEnv, probe, validatePackage, install, rollback, allowHosts, authority, proxy,
-  authLogSnapshot, authLogEvidence, checkAuthLog, main };
+  authLogSnapshot, authLogEvidence, checkAuthLog, websocketCheck, authenticatedServer, main };
 if (require.main === module || module.id === '[stdin]') {
   main(process.argv.slice(2)).catch(error => { process.stderr.write(`codex-termux: ${error.message}\n`); process.exitCode = 1; });
 }
@@ -686,12 +1005,21 @@ _codex_termux_complete() {
     --wrapper-config) [[ -z $action ]] || return 0; mapfile -t COMPREPLY < <(compgen -f -- "$cur"); return ;;
   esac
   if [[ -z $action ]]; then
-    COMPREPLY=($(compgen -W 'run chatgpt login login-api status logout doctor test setup manage completion help --help --version --wrapper-version --wrapper-info --wrapper-dry-run --wrapper-no-update --wrapper-color --wrapper-banner --wrapper-config --wrapper-no-config --wrapper-debug' -- "$cur")); return
+    COMPREPLY=($(compgen -W 'run chatgpt connect login login-api status logout doctor test setup manage completion help --help --version --wrapper-version --wrapper-info --wrapper-dry-run --wrapper-no-update --wrapper-color --wrapper-banner --wrapper-config --wrapper-no-config --wrapper-debug' -- "$cur")); return
   fi
   if [[ $action == manage ]]; then
-    if ((i == COMP_CWORD)); then COMPREPLY=($(compgen -W 'check auth-check update rollback self-update uninstall config help' -- "$cur")); return; fi
+    if ((i == COMP_CWORD)); then COMPREPLY=($(compgen -W 'check auth-check server update rollback self-update uninstall config help' -- "$cur")); return; fi
     sub=${COMP_WORDS[i]}
     case $sub in
+      server)
+        if ((i+1 == COMP_CWORD)); then COMPREPLY=($(compgen -W 'start status stop' -- "$cur"))
+        elif [[ ${COMP_WORDS[i+1]} == start ]]; then
+          case $prev in
+            --auth) COMPREPLY=($(compgen -W 'inherited chatgpt' -- "$cur")) ;;
+            --port) return 0 ;;
+            *) COMPREPLY=($(compgen -W '--auth --port' -- "$cur")) ;;
+          esac
+        fi ;;
       check|auth-check) COMPREPLY=($(compgen -W '--json' -- "$cur")) ;;
       update)
         [[ $prev != --version ]] || return 0
@@ -708,6 +1036,8 @@ _codex_termux_complete() {
         else COMPREPLY=($(compgen -W '--dry-run --yes --prefix --color --help' -- "$cur")); fi ;;
       config) if ((i+1 == COMP_CWORD)); then COMPREPLY=($(compgen -W 'show example' -- "$cur")); fi ;;
     esac
+  elif [[ $action == connect && $i == "$COMP_CWORD" ]]; then
+    COMPREPLY=($(compgen -W '--chatgpt -- resume fork' -- "$cur"))
   elif [[ $action == completion && $i == "$COMP_CWORD" ]]; then
     COMPREPLY=($(compgen -W 'bash zsh' -- "$cur"))
   elif [[ $action == setup ]]; then
@@ -753,7 +1083,7 @@ _codex_termux() {
       if [[ -z $action ]]; then
         label='codex (termux)'
         choices=(
-          'run:Launch Codex' 'chatgpt:Launch without API-key variables'
+          'connect:Attach to the managed app server' 'run:Launch Codex' 'chatgpt:Launch without API-key variables'
           'login:ChatGPT device login' 'login-api:Use OPENAI_API_KEY'
           'status:Show authentication status' 'logout:Remove stored login'
           'doctor:Run Codex doctor' 'test:Check DNS and HTTPS transport'
@@ -768,10 +1098,19 @@ _codex_termux() {
           '--wrapper-debug:Show fixed diagnostic events')
       elif [[ $action == manage ]]; then
         if ((i == CURRENT)); then
-          label='maintenance'; choices=('check:Inspect local prerequisites' 'auth-check:Inspect saved MCP token-expiry errors' 'update:Check or install Codex npm runtime' 'rollback:Switch to the previous npm runtime' 'self-update:Update wrapper, completion and manual' 'uninstall:Remove wrapper package files' 'config:Show settings or example' 'help:Show help')
+          label='maintenance'; choices=('server:Manage the opt-in app server' 'check:Inspect local prerequisites' 'auth-check:Inspect saved MCP token-expiry errors' 'update:Check or install Codex npm runtime' 'rollback:Switch to the previous npm runtime' 'self-update:Update wrapper, completion and manual' 'uninstall:Remove wrapper package files' 'config:Show settings or example' 'help:Show help')
         else
           sub=${words[i]}; label='maintenance option'
           case $sub in
+            server)
+              if ((i+1 == CURRENT)); then choices=('start:Detach app server and proxy' 'status:Verify owned server' 'stop:Stop owned server and proxy')
+              elif [[ ${words[i+1]} == start ]]; then
+                case $prev in
+                  --auth) choices=('inherited:Keep start-time credentials' 'chatgpt:Remove API credential variables') ;;
+                  --port) return 1 ;;
+                  *) choices=('--auth:Required start-time mode' '--port:Loopback port, default temporary') ;;
+                esac
+              fi ;;
             check) choices=('--json:Machine-readable local report') ;;
             auth-check) choices=('--json:Machine-readable saved-log evidence') ;;
             update) [[ $prev != --version ]] || return 1; choices=('--check:Check only' '--json:JSON for --check' '--yes:Authorize installation' '--version:Select exact stable version') ;;
@@ -788,6 +1127,8 @@ _codex_termux() {
             config) ((i+1 == CURRENT)) || return 1; choices=('show:Effective nonsecret settings' 'example:Literal configuration template') ;;
           esac
         fi
+      elif [[ $action == connect ]] && ((i == CURRENT)); then
+        label='managed connection'; choices=('--chatgpt:Require ChatGPT-mode server' '--:End wrapper connect options' 'resume:Resume a conversation' 'fork:Fork a conversation')
       elif [[ $action == completion ]] && ((i == CURRENT)); then
         label='shell'; choices=('bash:Bash programmable completion' 'zsh:Zsh completion with descriptions')
       elif [[ $action == setup ]]; then
@@ -889,6 +1230,7 @@ maintenance() {
       require_termux
       resolve_node || die "Node.js is required; run: $PROGRAM setup"
       runtime auth-check "$auth_log" "${1:+json}"; return ;;
+    server) managed_server "$@"; return ;;
     self-update|uninstall)
       package_tool "$action" "$@"; return ;;
     update|rollback) ;;
@@ -943,6 +1285,80 @@ maintenance() {
   ((yes)) || confirm "Install and validate Codex $requested in a separate runtime?" || { note 'unchanged'; return 0; }
   note "staging Codex $requested; the current runtime stays available"
   runtime install "$data_dir" "$arch" "$requested" "$npm_bin"
+}
+# Server helpers never use start_proxy or update discovery. The supervisor owns
+# its proxy independently; connecting keeps the existing foreground wait loop.
+server_operation() {
+  runtime server "$1" "$data_dir" "$(readlink -f -- "${BASH_SOURCE[0]}")" "$installed_version" "$2" "$3" \
+    "$proxy_allow" "$proxy_connect_timeout" "$ca_bundle" "${codex_command[@]}"
+}
+managed_server() {
+  local operation=${1:-help} auth='' port=0 option
+  (($#)) && shift
+  case $operation in
+    help|-h|--help) usage; return ;;
+    start|status|stop) ;;
+    *) usage_error 'server requires start, status, or stop' ;;
+  esac
+  local -A seen=()
+  while (($#)); do
+    option=$1; shift
+    [[ $operation == start && ( $option == --auth || $option == --port ) && $# -gt 0 ]] || usage_error 'start accepts --auth inherited|chatgpt and --port N; status/stop accept no options'
+    [[ -z ${seen[$option]+yes} ]] || usage_error 'repeated server option'; seen[$option]=1
+    case $option in --auth) auth=$1 ;; --port) port=$1 ;; esac
+    shift
+  done
+  if [[ $operation == start ]]; then
+    [[ $auth == inherited || $auth == chatgpt ]] || usage_error 'start requires explicit --auth inherited or --auth chatgpt'
+    [[ $port =~ ^[0-9]{1,5}$ ]] && ((10#$port <= 65535 && 10#$port != 4500)) || usage_error 'port must be 0..65535, excluding externally managed port 4500'
+  fi
+  require_termux
+  resolve_node || die 'Node.js is required for managed server operations'
+  # Stop remains available when the selected runtime was removed or changed.
+  if [[ $operation != stop ]]; then
+    if resolve_codex; then probe_version || installed_version=''; fi
+    if [[ $operation == start ]]; then
+      [[ -n $installed_version ]] || die 'selected runtime validation failed; use run --no-daemon'
+      find_ca_bundle || die 'a working CA bundle is required'
+    fi
+  fi
+  server_operation "$operation" "$auth" "$port"
+}
+connect_server() {
+  local auth=inherited output url token_file status=0 arg has_cd=0
+  local -a cwd_args=()
+  if [[ ${1:-} == --chatgpt ]]; then auth=chatgpt; shift; fi
+  [[ ${1:-} != -- ]] || shift
+  for arg in "$@"; do
+    case $arg in
+      # The optional wrapper delimiter was consumed above. Keep Codex's own
+      # delimiter and following positional data unchanged in the forwarded array.
+      --) break ;;
+      -C|--cd|--cd=*|-C?*) has_cd=1 ;;
+      --no-daemon|--no-daemon=*|--remote|--remote=*|--remote-auth-token-env|--remote-auth-token-env=*)
+        usage_error 'connect supplies remote authentication; --remote, --remote-auth-token-env and --no-daemon are incompatible' ;;
+    esac
+  done
+  require_runtime
+  probe_version || die 'selected runtime validation failed; use run --no-daemon'
+  output=$(server_operation connect "$auth" 0) || return $?
+  IFS=$'\n' read -r url <<<"$output"
+  token_file=${output#*$'\n'}
+  [[ $url =~ ^ws://127\.0\.0\.1:[0-9]+$ && $token_file == /* ]] || die 'invalid server connection response'
+  local CODEX_TERMUX_SERVER_TOKEN
+  IFS= read -r CODEX_TERMUX_SERVER_TOKEN <"$token_file" || die 'managed server token unavailable'
+  [[ $CODEX_TERMUX_SERVER_TOKEN =~ ^[a-f0-9]{64}$ ]] || die 'invalid managed server token'
+  export CODEX_TERMUX_SERVER_TOKEN
+  trap ':' INT
+  trap 'interrupted TERM 143' TERM
+  trap 'interrupted HUP 129' HUP
+  # An explicit cwd also covers remote resume/fork. A later user --cd remains
+  # Codex's decision; argument values and boundaries are never reconstructed.
+  ((has_cd)) || cwd_args=(--cd "$PWD")
+  run_codex "$auth" --remote "$url" --remote-auth-token-env CODEX_TERMUX_SERVER_TOKEN "${cwd_args[@]}" "$@" || status=$?
+  unset CODEX_TERMUX_SERVER_TOKEN
+  trap - INT TERM HUP
+  return "$status"
 }
 package_tool() {
   local operation=$1 helper own folder arg force_remote=1 explicit_color=0
@@ -1191,6 +1607,7 @@ main() {
     -h|--help|help) (($# <= 1)) || usage_error 'help accepts no arguments'; usage; return ;;
     completion) (($# == 2)) || usage_error 'completion requires bash or zsh'; completion "$2"; return ;;
     manage) shift; maintenance "$@"; return ;;
+    connect) shift; connect_server "$@"; return ;;
     setup) shift; setup "$@"; return ;;
   esac
   case $action in

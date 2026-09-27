@@ -16,12 +16,21 @@ _codex_termux_complete() {
     --wrapper-config) [[ -z $action ]] || return 0; mapfile -t COMPREPLY < <(compgen -f -- "$cur"); return ;;
   esac
   if [[ -z $action ]]; then
-    COMPREPLY=($(compgen -W 'run chatgpt login login-api status logout doctor test setup manage completion help --help --version --wrapper-version --wrapper-info --wrapper-dry-run --wrapper-no-update --wrapper-color --wrapper-banner --wrapper-config --wrapper-no-config --wrapper-debug' -- "$cur")); return
+    COMPREPLY=($(compgen -W 'run chatgpt connect login login-api status logout doctor test setup manage completion help --help --version --wrapper-version --wrapper-info --wrapper-dry-run --wrapper-no-update --wrapper-color --wrapper-banner --wrapper-config --wrapper-no-config --wrapper-debug' -- "$cur")); return
   fi
   if [[ $action == manage ]]; then
-    if ((i == COMP_CWORD)); then COMPREPLY=($(compgen -W 'check auth-check update rollback self-update uninstall config help' -- "$cur")); return; fi
+    if ((i == COMP_CWORD)); then COMPREPLY=($(compgen -W 'check auth-check server update rollback self-update uninstall config help' -- "$cur")); return; fi
     sub=${COMP_WORDS[i]}
     case $sub in
+      server)
+        if ((i+1 == COMP_CWORD)); then COMPREPLY=($(compgen -W 'start status stop' -- "$cur"))
+        elif [[ ${COMP_WORDS[i+1]} == start ]]; then
+          case $prev in
+            --auth) COMPREPLY=($(compgen -W 'inherited chatgpt' -- "$cur")) ;;
+            --port) return 0 ;;
+            *) COMPREPLY=($(compgen -W '--auth --port' -- "$cur")) ;;
+          esac
+        fi ;;
       check|auth-check) COMPREPLY=($(compgen -W '--json' -- "$cur")) ;;
       update)
         [[ $prev != --version ]] || return 0
@@ -38,6 +47,8 @@ _codex_termux_complete() {
         else COMPREPLY=($(compgen -W '--dry-run --yes --prefix --color --help' -- "$cur")); fi ;;
       config) if ((i+1 == COMP_CWORD)); then COMPREPLY=($(compgen -W 'show example' -- "$cur")); fi ;;
     esac
+  elif [[ $action == connect && $i == "$COMP_CWORD" ]]; then
+    COMPREPLY=($(compgen -W '--chatgpt -- resume fork' -- "$cur"))
   elif [[ $action == completion && $i == "$COMP_CWORD" ]]; then
     COMPREPLY=($(compgen -W 'bash zsh' -- "$cur"))
   elif [[ $action == setup ]]; then

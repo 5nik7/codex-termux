@@ -63,6 +63,19 @@ class ReleaseTests(unittest.TestCase):
         source = extraction / prefix
         self.assertTrue((source / 'man/codex-termux.1').is_file())
         self.assertTrue((source / 'docs/evidence/0.3.1/verification.json').is_file())
+        for name in [
+            'tests/test_server.py', 'tools/native_server_smoke.py',
+            'docs/releases/v0.4.0.md',
+            'docs/evidence/0.4.0/verification.json',
+            'docs/evidence/managed-server/verification.json',
+            'docs/evidence/managed-server/verify.log',
+            'docs/evidence/managed-server/owner-acceptance.md',
+            'docs/evidence/managed-server/reviewer-report.md',
+            'docs/history/managed-server-2026-09-26/verification.json',
+            'docs/history/managed-server-2026-09-26/verify.log',
+        ]:
+            with self.subTest(archive_member=name):
+                self.assertEqual((source / name).read_bytes(), (ROOT / name).read_bytes())
         subprocess.run([sys.executable, '-B', str(source / 'tools/build.py'), '--check'], check=True, stdout=subprocess.DEVNULL)
         destination = self.root / 'owned prefix'; destination.mkdir()
         home = self.root / 'owned home'; home.mkdir()

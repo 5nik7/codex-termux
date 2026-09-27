@@ -1,5 +1,28 @@
 # Changelog
 
+## 0.4.0 — local release candidate, 2026-09-27
+
+- Add explicit `manage server start --auth inherited|chatgpt [--port N]`,
+  `manage server status`, `manage server stop`, and `connect [--chatgpt] [--] ...`.
+- Detach a private Node supervisor owning its own DNS/CONNECT proxy and a
+  loopback capability-token app server. Keep ordinary and `--no-daemon` launches
+  independent. This is a WebSocket workaround, not an upstream daemon repair.
+- Verify live control ownership and authenticated WebSocket connectivity; refuse
+  duplicate starts, unsafe/stale state, incompatible auth reuse and runtime
+  mismatch. Preserve uncertain recovery state and never kill from stored PIDs.
+- Preserve connection arguments, cwd, streams, exit status and interrupt
+  continuation, including resume/fork. Keep help/version/completion fast paths.
+- Add isolated lifecycle fixtures and an opt-in native transport smoke tool;
+  document Android limits and separate owner-run account/tool acceptance.
+- Reject malformed control MAC encodings before constant-time comparison, so
+  unauthenticated HTTP requests cannot crash the supervisor with unequal buffers.
+- Honor Codex's own `--` delimiter after the optional wrapper delimiter in
+  `connect`; preserve literal option-like prompts and default cwd selection.
+- Record owner-run native Termux acceptance with Codex CLI 0.157.1 on the
+  corrected feature candidate (wrapper 0.3.1), independently reported Linux
+  review, and separate local 0.4.0 verification. Preserve the historical evidence
+  and include it in the full source archives. Published 0.3.1 assets stay intact.
+
 ## 0.3.1
 
 - Add `manage auth-check [--json]` for bounded, offline MCP token-expiry log

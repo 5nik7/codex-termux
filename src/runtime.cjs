@@ -359,7 +359,321 @@ function proxy(extra, timeout, onReady, deps = {}) {
   server.listen(0, '127.0.0.1', () => onReady(server.address().port));
   return { server, close() { for (const socket of sockets) socket.destroy(); server.close(); } };
 }
+// Managed app server: private per-CODEX_HOME state and an authenticated live
+// supervisor, never PID-based adoption or PID-based stop. Same-user state is
+// trusted; surviving state after SIGKILL requires owner review.
+const SERVER_FALLBACK = 'Use: codex-termux --wrapper-no-update run --no-daemon';
+const AUTH_KEYS = ['OPENAI_API_KEY', 'CODEX_API_KEY', 'CODEX_ACCESS_TOKEN'];
+const delay = ms => new Promise(resolve => setTimeout(resolve, ms));
+function serverFail(message) { fail(`${message}. ${SERVER_FALLBACK}`); }
+function secretFile(file) {
+  const st = fs.lstatSync(file);
+  if (!st.isFile() || st.isSymbolicLink() || (st.mode & 0o077) || st.uid !== process.getuid()) serverFail('Unsafe server state');
+  return readRegular(file, 65536);
+}
+function serverRoot(data) {
+  // Resolve existing CODEX_HOME aliases without opening credentials or config.
+  const home = process.env.CODEX_HOME || path.join(process.env.HOME, '.codex');
+  if (!path.isAbsolute(home) || /[\x00-\x1f\x7f]/.test(home)) serverFail('CODEX_HOME must be an absolute path without control characters');
+  const canonical = fs.realpathSync(home);
+  privateDir(data);
+  const parent = path.join(data, 'servers'); privateDir(parent);
+  const root = path.join(parent, crypto.createHash('sha256').update(canonical).digest('hex').slice(0, 32));
+  privateDir(root);
+  return { root, home: canonical, active: path.join(root, 'active') };
+}
+function mac(secret, value) { return crypto.createHmac('sha256', secret).update(value).digest('hex'); }
+function equalSecret(a, b) {
+  // All callers compare SHA-256 MACs in canonical lowercase hex. Validate the
+  // encoding before decoding: equal JS string lengths need not mean equal bytes.
+  return typeof a === 'string' && typeof b === 'string' && a.length === 64 && b.length === 64 &&
+    /^[a-f0-9]{64}$/.test(a) && /^[a-f0-9]{64}$/.test(b) &&
+    crypto.timingSafeEqual(Buffer.from(a, 'hex'), Buffer.from(b, 'hex'));
+}
+function authIdentity(mode, secret) {
+  return mac(secret, JSON.stringify([mode, ...AUTH_KEYS.map(k => mode === 'chatgpt' ? null : process.env[k] ?? null)]));
+}
+function runtimeIdentity(command, version) {
+  const entries = command.map(file => {
+    const real = fs.realpathSync(file), s = fs.statSync(real);
+    return [real, s.dev, s.ino, s.size, s.mtimeMs];
+  });
+  // For npm launches validate the exact native pairing and include its identity.
+  if (command.length === 2 && path.basename(command[1]) === 'codex.js') {
+    const root = path.resolve(path.dirname(command[1]), '../../../..');
+    const arch = process.arch === 'arm64' ? 'arm64' : 'x64';
+    validatePackage(root, { version, arch, native: `@openai/codex-linux-${arch}`, alias: `npm:@openai/codex@${version}-linux-${arch}` });
+    const triple = arch === 'arm64' ? 'aarch64' : 'x86_64';
+    const binary = path.join(root, 'node_modules', '@openai', `codex-linux-${arch}`, 'vendor', `${triple}-unknown-linux-musl`, 'bin', 'codex');
+    const s = fs.statSync(binary);
+    entries.push([fs.realpathSync(binary), s.dev, s.ino, s.size, s.mtimeMs]);
+  }
+  return { version, digest: crypto.createHash('sha256').update(JSON.stringify(entries)).digest('hex') };
+}
+function websocketCheck(port, token) {
+  return new Promise((resolve, reject) => {
+    const key = crypto.randomBytes(16).toString('base64');
+    const expected = crypto.createHash('sha1').update(key + '258EAFA5-E914-47DA-95CA-C5AB0DC85B11').digest('base64');
+    const headers = { Connection: 'Upgrade', Upgrade: 'websocket', 'Sec-WebSocket-Version': '13', 'Sec-WebSocket-Key': key };
+    if (token) headers.Authorization = `Bearer ${token}`;
+    let socket, done = false;
+    const finish = (error, value) => {
+      if (done) return; done = true; clearTimeout(timer); req.destroy(); socket?.destroy();
+      error ? reject(new Error('WebSocket authentication check failed')) : resolve(value);
+    };
+    const req = http.request({ host: '127.0.0.1', port, path: '/', headers, agent: false });
+    const timer = setTimeout(() => finish(true), 1200);
+    req.on('upgrade', (res, sock) => {
+      socket = sock; sock.on('error', () => {});
+      finish(res.statusCode !== 101 || res.headers['sec-websocket-accept'] !== expected, 101);
+    });
+    req.on('response', res => { res.resume(); finish(false, res.statusCode); });
+    req.on('error', () => finish(true)); req.end();
+  });
+}
+async function authenticatedServer(port, token) {
+  if (await websocketCheck(port, token) !== 101 || await websocketCheck(port, null) !== 401) throw new Error('Authentication not enforced');
+}
+function controlRequest(state, secret, operation) {
+  return new Promise((resolve, reject) => {
+    const nonce = crypto.randomBytes(24).toString('hex');
+    const route = `/${operation}/${nonce}`;
+    let done = false;
+    const finish = (error, value) => {
+      if (done) return; done = true; clearTimeout(timer); req.destroy();
+      error ? reject(new Error('Owned supervisor unavailable or state mismatched; state retained; no PID was signalled')) : resolve(value);
+    };
+    const req = http.request({ host: '127.0.0.1', port: state.controlPort, path: route, method: 'POST', agent: false,
+      headers: { 'X-Codex-Termux-Proof': mac(secret, route) } }, res => {
+      let text = '';
+      res.on('data', chunk => { text += chunk; if (text.length > 16384) finish(true); });
+      res.on('error', () => finish(true));
+      res.on('end', () => {
+        if (done) return;
+        try {
+          if (res.statusCode !== 200 || !equalSecret(res.headers['x-codex-termux-proof'], mac(secret, nonce + text))) return finish(true);
+          const reply = JSON.parse(text);
+          if (JSON.stringify(reply.state) !== JSON.stringify(state)) return finish(true);
+          finish(false, reply);
+        } catch (_) { finish(true); }
+      });
+    });
+    const timer = setTimeout(() => finish(true), 4000);
+    req.on('error', () => finish(true)); req.end();
+  });
+}
+function entryExists(file) {
+  try { fs.lstatSync(file); return true; }
+  catch (error) { if (error.code === 'ENOENT') return false; throw error; }
+}
+function readServer(active) {
+  const st = fs.lstatSync(active);
+  if (!st.isDirectory() || st.isSymbolicLink() || (st.mode & 0o077) || st.uid !== process.getuid()) serverFail('Unsafe server instance directory');
+  const state = JSON.parse(secretFile(path.join(active, 'state.json')));
+  if (state.schema !== 1 || !/^[a-f0-9]{32}$/.test(state.id) ||
+      ![state.controlPort, state.port, state.proxyPort].every(p => Number.isInteger(p) && p > 0 && p < 65536)) serverFail('Invalid server state');
+  return { state, secret: secretFile(path.join(active, 'control.token')).trim(), token: secretFile(path.join(active, 'ws.token')).trim() };
+}
+function portOpen(port) {
+  return new Promise(resolve => {
+    const sock = net.connect({ host: '127.0.0.1', port });
+    const finish = value => { sock.destroy(); resolve(value); };
+    sock.setTimeout(500, () => finish(true)); // uncertainty retains recovery state
+    sock.on('connect', () => finish(true));
+    sock.on('error', error => finish(error.code !== 'ECONNREFUSED'));
+  });
+}
+async function serverWorker(active) {
+  process.umask(0o077);
+  const cfg = JSON.parse(secretFile(path.join(active, 'launch.json')));
+  const secret = secretFile(path.join(active, 'control.token')).trim();
+  const token = secretFile(path.join(active, 'ws.token')).trim();
+  let service, control, child, state, appPort, closing = false, ready = false;
+  const result = (ok, message) => atomic(path.join(cfg.root, `result-${cfg.id}.json`), JSON.stringify({ ok, message }));
+  const cleanup = async (message, ok = false) => {
+    if (closing) return; closing = true;
+    clearTimeout(deadline);
+    // Signal only the direct child handle created by this supervisor. The npm
+    // launcher forwards TERM to its native child. No stored PID is used here.
+    if (child && child.exitCode === null && child.signalCode === null) {
+      child.kill('SIGTERM');
+      const until = Date.now() + 5000;
+      while (child.exitCode === null && child.signalCode === null && Date.now() < until) await delay(50);
+      if (child.exitCode === null && child.signalCode === null) {
+        if (!ready) result(false, 'Server did not terminate; private recovery state retained');
+        ready = false; closing = false;
+        return; // retain supervisor/proxy/control for a later reviewed stop
+      }
+    }
+    // A launcher can die while its native child survives. Never declare that
+    // stopped, discard its token, or infer a PID to kill from the open port.
+    if (child && appPort && await portOpen(appPort)) {
+      if (!ready) result(false, 'Child exited but app port remains occupied; recovery state retained');
+      ready = false; closing = false; return;
+    }
+    service?.close(); control?.close();
+    // Only known files in the directory exclusively created by this start.
+    for (const name of ['state.json', 'launch.json', 'worker.cjs', 'ws.token', 'control.token']) {
+      try { fs.unlinkSync(path.join(active, name)); } catch (e) { if (e.code !== 'ENOENT') return; }
+    }
+    try { fs.rmdirSync(active); } catch (_) { return; }
+    if (!ready) result(ok, message);
+    process.exit(0);
+  };
+  const deadline = setTimeout(() => cleanup('Startup timed out; app-server WebSocket capability or authentication unavailable'), 12000);
+  process.on('SIGHUP', () => {});
+  process.on('SIGINT', () => {});
+  process.on('SIGTERM', () => cleanup('Startup interrupted'));
+  try {
+    if (JSON.stringify(runtimeIdentity(cfg.command, cfg.runtime.version)) !== JSON.stringify(cfg.runtime)) throw new Error();
+    let proxyPort;
+    await new Promise((resolve, reject) => {
+      service = proxy(cfg.allow, cfg.timeout, p => { proxyPort = p; resolve(); });
+      service.server.on('error', reject);
+    });
+    if (closing) return;
+    // Select a temporary loopback port when omitted. The unavoidable close/bind
+    // race fails closed: authentication and the child's liveness are checked.
+    let port = cfg.port;
+    const reserve = net.createServer();
+    await new Promise((resolve, reject) => { reserve.once('error', reject); reserve.listen(port, '127.0.0.1', resolve); });
+    port = reserve.address().port;
+    await new Promise(resolve => reserve.close(resolve));
+    if (closing) return;
+    if (port === 4500) throw new Error();
+    const env = { ...process.env, CODEX_HOME: cfg.home,
+      HTTPS_PROXY: `http://127.0.0.1:${proxyPort}`, https_proxy: `http://127.0.0.1:${proxyPort}`,
+      NO_PROXY: '127.0.0.1,localhost', no_proxy: '127.0.0.1,localhost',
+      CODEX_CA_CERTIFICATE: cfg.ca, SSL_CERT_FILE: cfg.ca };
+    if (cfg.auth === 'chatgpt') for (const k of AUTH_KEYS) delete env[k];
+    delete env.CODEX_TERMUX_SERVER_TOKEN;
+    appPort = port;
+    child = cp.spawn(cfg.command[0], [...cfg.command.slice(1), 'app-server', '--listen', `ws://127.0.0.1:${port}`,
+      '--ws-auth', 'capability-token', '--ws-token-file', path.join(active, 'ws.token')], { env, stdio: 'ignore' });
+    child.on('error', () => cleanup('App-server could not execute'));
+    child.on('exit', () => { if (!closing) cleanup('App-server exited; required WebSocket flags may be unavailable'); });
+    control = http.createServer({ maxHeaderSize: 4096, requestTimeout: 2000, headersTimeout: 2000 }, (req, res) => {
+      if (!state || req.method !== 'POST' || !/^\/(status|stop)\/[a-f0-9]{48}$/.test(req.url) ||
+          !equalSecret(req.headers['x-codex-termux-proof'], mac(secret, req.url))) {
+        res.writeHead(403); res.end(); return;
+      }
+      const text = JSON.stringify({ state, ready, closing });
+      res.setHeader('X-Codex-Termux-Proof', mac(secret, req.url.split('/')[2] + text));
+      res.end(text);
+      if (req.url.startsWith('/stop/')) res.on('finish', () => cleanup('Stopped'));
+    });
+    control.maxConnections = 16;
+    control.setTimeout(2000, socket => socket.destroy());
+    control.on('clientError', (_e, sock) => sock.destroy());
+    await new Promise((resolve, reject) => { control.once('error', reject); control.listen(0, '127.0.0.1', resolve); });
+    state = { schema: 1, id: cfg.id, pid: process.pid, childPid: child.pid, port, proxyPort,
+      controlPort: control.address().port, home: cfg.home, auth: cfg.auth, authIdentity: cfg.authIdentity, runtime: cfg.runtime };
+    atomic(path.join(active, 'state.json'), JSON.stringify(state));
+    while (!closing) {
+      try { await authenticatedServer(port, token); break; } catch (_) { await delay(100); }
+    }
+    if (closing) return;
+    if (child.exitCode !== null || child.signalCode !== null) return cleanup('App-server exited during readiness');
+    ready = true; clearTimeout(deadline); result(true, 'Authenticated server ready');
+  } catch (_) { await cleanup('Startup failed; check port availability, runtime pairing and WebSocket capabilities'); }
+}
+async function managedServer(args) {
+  const [operation, data, wrapper, version, auth, portText, allow, timeout, ca, ...command] = args;
+  const location = serverRoot(data), { root, active, home } = location;
+  if (operation === 'status') console.log(`Instance: ${root}`);
+  if (operation === 'start') {
+    const runtime = runtimeIdentity(command, version);
+    const port = Number(portText);
+    if (!['inherited', 'chatgpt'].includes(auth) || !Number.isInteger(port) || port < 0 || port > 65535 || port === 4500) serverFail('Invalid server auth mode or port (4500 is reserved for external use)');
+    try { fs.mkdirSync(active, { mode: 0o700 }); }
+    catch (_) { serverFail('Instance already exists or startup is concurrent; use manage server status; surviving state requires review'); }
+    const id = crypto.randomBytes(16).toString('hex');
+    let launched = false;
+    try {
+      const secret = crypto.randomBytes(32).toString('hex');
+      fs.writeFileSync(path.join(active, 'control.token'), secret + '\n', { flag: 'wx', mode: 0o600 });
+      fs.writeFileSync(path.join(active, 'ws.token'), crypto.randomBytes(32).toString('hex') + '\n', { flag: 'wx', mode: 0o600 });
+      const source = fs.readFileSync(wrapper, 'utf8');
+      const marker = "<<'CODEX_TERMUX_NODE'\n";
+      const begin = source.indexOf(marker), end = source.indexOf('\nCODEX_TERMUX_NODE\n', begin);
+      if (begin < 0 || end < 0) throw new Error();
+      fs.writeFileSync(path.join(active, 'worker.cjs'), source.slice(begin + marker.length, end), { flag: 'wx', mode: 0o600 });
+      atomic(path.join(active, 'launch.json'), JSON.stringify({ root, home, id, command, runtime, auth,
+        authIdentity: authIdentity(auth, secret), port, allow, timeout: Number(timeout), ca }));
+      const worker = cp.spawn(process.execPath, [path.join(active, 'worker.cjs'), 'server-worker', active],
+        { detached: true, stdio: 'ignore', env: { ...process.env, NODE_OPTIONS: '', NODE_PATH: '' } });
+      await new Promise((resolve, reject) => { worker.once('spawn', resolve); worker.once('error', reject); });
+      worker.unref(); launched = true;
+      const resultPath = path.join(root, `result-${id}.json`), until = Date.now() + 20000;
+      while (Date.now() < until) {
+        try {
+          const result = JSON.parse(secretFile(resultPath)); fs.unlinkSync(resultPath);
+          if (!result.ok) serverFail(result.message);
+          const live = readServer(active);
+          if (live.state.id !== id) serverFail('Started instance ended and was replaced; inspect status before connecting');
+          const proof = await controlRequest(live.state, live.secret, 'status');
+          if (!proof.ready || proof.closing) serverFail('Server left ready state during startup; inspect status');
+          console.log(`Server started: ws://127.0.0.1:${live.state.port} | Codex ${version} | auth ${auth}`);
+          console.log(`Instance: ${root}`);
+          console.log('Authentication is retained from server start; clients do not replace it.'); return;
+        } catch (e) { if (e.code !== 'ENOENT') throw e; }
+        await delay(100);
+      }
+      serverFail('Supervisor startup outcome unknown; state retained; inspect manage server status');
+    } catch (error) {
+      if (!launched) {
+        for (const name of ['launch.json', 'worker.cjs', 'control.token', 'ws.token']) {
+          try { fs.unlinkSync(path.join(active, name)); } catch (_) {}
+        }
+        try { fs.rmdirSync(active); } catch (_) {}
+      }
+      throw error;
+    }
+  }
+  if (!entryExists(active)) {
+    if (operation === 'status' || operation === 'stop') { console.log(`Server stopped. Instance: ${root}`); return; }
+    serverFail('No managed server; use manage server start --auth inherited or --auth chatgpt');
+  }
+  const { state, secret, token } = readServer(active);
+  // Verify the complete live record before sending a destructive request or
+  // sending the WebSocket token to a port recorded on disk.
+  const live = await controlRequest(state, secret, 'status');
+  if (operation === 'stop') {
+    await controlRequest(state, secret, 'stop');
+    const until = Date.now() + 6500;
+    while (entryExists(active) && Date.now() < until) await delay(100);
+    if (entryExists(active)) serverFail('Stop incomplete; recovery state retained');
+    console.log('Managed server and proxy stopped.'); return;
+  }
+  if (!live.ready || live.closing) serverFail('Managed server is not ready: starting, stopping, or recovery required');
+  await authenticatedServer(state.port, token);
+  let selected;
+  try { selected = runtimeIdentity(command, version); } catch (_) { selected = null; }
+  const matches = JSON.stringify(selected) === JSON.stringify(state.runtime);
+  if (operation === 'status') {
+    console.log(`Server running: ws://127.0.0.1:${state.port} | authenticated WebSocket verified`);
+    console.log(`Auth: ${state.auth} (start-time environment); Codex ${state.runtime.version}; runtime ${state.runtime.digest.slice(0, 16)}`);
+    console.log(`Selected runtime: ${selected ? 'Codex ' + selected.version + '; ' : ''}${matches ? 'matches' : 'MISMATCH or unavailable; connect refused; stop explicitly before restarting'}`);
+    if (!matches) process.exitCode = 1;
+    return;
+  }
+  if (operation !== 'connect') serverFail('Unknown server operation');
+  if (!matches) serverFail('Running server runtime differs from the selected runtime; stop explicitly before restarting');
+  if (state.auth !== auth || !equalSecret(state.authIdentity, authIdentity(auth, secret))) serverFail('Server authentication mode or credential environment differs; client cannot change server authentication');
+  // Internal machine output to the frontend: URL and token *path*, never token.
+  console.log(`ws://127.0.0.1:${state.port}\n${path.join(active, 'ws.token')}`);
+}
+
 async function main(args) {
+  if (args[0] === "server-worker") return serverWorker(args[1]);
+  if (args[0] === "server") {
+    try { return await managedServer(args.slice(1)); }
+    catch (error) {
+      // Filesystem and child errors can contain arbitrary private paths.
+      if (!error.message.includes(SERVER_FALLBACK) && !error.message.startsWith("Owned supervisor")) serverFail("Server operation failed; unsafe, missing or mismatched state/runtime");
+      throw error;
+    }
+  }
   const [action, ...rest] = args;
   if (action === 'proxy') {
     const [extra, timeout, cache, arch, authLog, authState] = rest;
@@ -433,7 +747,7 @@ async function main(args) {
 }
 module.exports = { stable, newer, privateDir, readRegular, atomic, selection, metadata, checkUpdate,
   cleanEnv, probe, validatePackage, install, rollback, allowHosts, authority, proxy,
-  authLogSnapshot, authLogEvidence, checkAuthLog, main };
+  authLogSnapshot, authLogEvidence, checkAuthLog, websocketCheck, authenticatedServer, main };
 if (require.main === module || module.id === '[stdin]') {
   main(process.argv.slice(2)).catch(error => { process.stderr.write(`codex-termux: ${error.message}\n`); process.exitCode = 1; });
 }

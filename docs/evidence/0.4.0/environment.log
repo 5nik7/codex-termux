@@ -1,0 +1,56 @@
+Captured UTC: 2026-09-27T02:35:57.201428+00:00
+Host: native Android ARM64 / Termux; offline fixtures only
+TERMUX_VERSION: 0.119.0-beta.3
+Python executable: /data/data/com.termux/files/usr/bin/python3
+umask: 077
++ uname -smr
+executable: /data/data/com.termux/files/usr/bin/uname
+Linux 5.4.274-qgki-30957850-abG996USQSJHZB1 aarch64
+exit: 0
++ bash --version
+executable: /data/data/com.termux/files/usr/bin/bash
+GNU bash, version 5.3.20(1)-release (aarch64-unknown-linux-android)
+Copyright (C) 2025 Free Software Foundation, Inc.
+License GPLv3+: GNU GPL version 3 or later <http://gnu.org/licenses/gpl.html>
+
+This is free software; you are free to change and redistribute it.
+There is NO WARRANTY, to the extent permitted by law.
+exit: 0
++ node --version
+executable: /data/data/com.termux/files/usr/bin/node
+v26.4.0
+exit: 0
++ python3 --version
+executable: /data/data/com.termux/files/usr/bin/python3
+Python 3.14.6
+exit: 0
++ zsh --version
+executable: /data/data/com.termux/files/usr/bin/zsh
+zsh 5.9.2 (aarch64-unknown-linux-android)
+exit: 0
++ git --version
+executable: /data/data/com.termux/files/usr/bin/git
+git version 2.55.0
+exit: 0
++ tar --version
+executable: /data/data/com.termux/files/usr/bin/tar
+tar (GNU tar) 1.35
+Copyright (C) 2023 Free Software Foundation, Inc.
+License GPLv3+: GNU GPL version 3 or later <https://gnu.org/licenses/gpl.html>.
+This is free software: you are free to change and redistribute it.
+There is NO WARRANTY, to the extent permitted by law.
+
+Written by John Gilmore and Jay Fenlason.
+exit: 0
++ sha256sum --version
+executable: /data/data/com.termux/files/usr/bin/sha256sum
+sha256sum (GNU coreutils) 9.11
+Packaged by Termux
+Copyright (C) 2026 Free Software Foundation, Inc.
+License GPLv3+: GNU GPL version 3 or later <https://gnu.org/licenses/gpl.html>.
+This is free software: you are free to change and redistribute it.
+There is NO WARRANTY, to the extent permitted by law.
+
+Written by Pádraig Brady and Q. Frank Xia.
+exit: 0
+groff executable: None
