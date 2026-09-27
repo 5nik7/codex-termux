@@ -1,6 +1,75 @@
 # Release codex-termux
 
-## Current candidate: 0.3.1
+## Current local candidate: 0.4.0
+
+VERSION is now 0.4.0 on `feat/managed-app-server`. Read the
+[release notes](docs/releases/v0.4.0.md) and [validation record](VALIDATION.md).
+This is an opt-in managed WebSocket workaround; the upstream Unix-socket daemon
+is not repaired. Preserve the documented Android process-lifetime and manual
+recovery limits.
+
+Owner-run native Termux acceptance used Codex CLI 0.157.1 and the corrected
+feature candidate whose wrapper VERSION was still 0.3.1. Its artifact identity
+and acceptance are recorded in
+[owner acceptance](docs/evidence/managed-server/owner-acceptance.md).
+The independent [Linux review report](docs/evidence/managed-server/reviewer-report.md)
+is reported evidence, not a local execution log. Later 0.4.0 verification has
+its own evidence directory; never relabel the older candidate as 0.4.0.
+
+From the candidate checkout:
+
+```bash
+python3 tools/build.py
+python3 tools/build.py --check
+python3 -B tools/verify.py
+git diff --check
+# Finalize documentation and evidence before building the distributable assets:
+python3 -B tools/release.py --tag v0.4.0
+```
+
+The last command validates VERSION and builds local assets. It creates no Git
+tag and uploads nothing. The default output is `dist/v0.4.0`; if it already
+exists, supply a new `--output dist/v0.4.0-review-N` directory. Never overwrite
+previous output or published 0.3.1 assets. From the chosen asset directory, run:
+
+```bash
+sha256sum -c SHA256SUMS
+sha256sum -c RELEASE-SHA256SUMS
+```
+
+Expect 15 files: 11 allowed package payloads, `SHA256SUMS`, both 0.4.0 source
+archives, and `RELEASE-SHA256SUMS`. The installer manifest has 11 members; the
+release manifest has 14 and also covers both source archives and `SHA256SUMS`.
+Verify the source archive includes `tests/test_server.py`, the smoke tool,
+`docs/releases/v0.4.0.md`, current evidence, and all historical evidence,
+including **both** files in `docs/history/managed-server-2026-09-26/`.
+Those history files were omitted from the earlier manually assembled review
+archive; that partial archive must not be reused.
+
+For review, copy the generated full source tarball and export tracked changes
+with `git diff --binary HEAD --`. That patch includes staged and unstaged tracked
+changes but omits untracked new files; the full source archive must contain them.
+Include branch, HEAD, status, diff summary, untracked paths, results/skips, output
+directory, and archive/patch hashes in the review information file. All intended
+new files, including both history files, belong in the eventual commit review.
+Leave this candidate uncommitted until separately authorized.
+
+The opt-in `tools/native_server_smoke.py --runtime /absolute/existing/runtime`
+uses temporary account/config roots and fake credentials. It does not install or
+modify the selected runtime and never sends a model request. It supplements the
+offline verifier; it does not replace owner-run account and shell acceptance.
+It was not rerun during 0.4.0 release preparation.
+
+Installation, commits, pushing, merging, tagging, publication, and remote release
+edits require separate task authorization. The tag workflow creates a draft;
+local `--tag v0.4.0` is only validation. Keep the installed wrapper, selected npm
+runtime, live authentication/configuration, shell settings, coding session, and
+external port 4500 server intact during local preparation.
+
+## Historical 0.3.1 candidate guidance
+
+The following records the earlier candidate procedure and its then-outstanding
+checks; it is not the current 0.4.0 release procedure.
 
 The authentication-notice patch is prepared as 0.3.1. Review
 `docs/releases/v0.3.1.md` and the new section of `VALIDATION.md` first.

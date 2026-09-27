@@ -1,12 +1,168 @@
-# codex-termux 0.3.1
+# codex-termux 0.4.0
 
 Run Codex's Linux npm build in **native Termux**, with Android DNS handled by
-native Node.js through a temporary loopback proxy. No proot or persistent service.
+native Node.js through a loopback proxy. No proot is required. Foreground
+launches use a temporary proxy; the opt-in managed app server owns its proxy.
 
-This patch adds an offline check for saved MCP token-expiry errors and an
-automatic recovery notice after eligible interactive sessions. Existing launch,
-login, proxy, and package/runtime management remain compatible. See
-[validation](VALIDATION.md) for evidence and native Termux checks still needed.
+This local release candidate adds an opt-in managed WebSocket app server and
+authenticated connections, resume, and fork. Existing launch, login, proxy,
+authentication recovery notices, and package/runtime management remain compatible.
+See the [0.4.0 release notes](docs/releases/v0.4.0.md) and
+[validation](VALIDATION.md) for evidence and remaining limitations.
+
+## Opt-in managed WebSocket app server
+
+This checkout adds a wrapper-managed **WebSocket** app server. It is a workaround
+for the upstream Unix-socket daemon's `/tmp` limitation, not a repair of that
+daemon. Ordinary invocations and `run --no-daemon` keep their existing behavior.
+Nothing enables this feature automatically or edits Codex configuration.
+
+```bash
+# Run the candidate directly, without installation. Reuse your existing login.
+bash bin/codex-termux --wrapper-no-update manage server start --auth chatgpt
+bash bin/codex-termux manage server status
+bash bin/codex-termux connect --chatgpt
+# Exit the client deliberately, then reconnect:
+bash bin/codex-termux connect --chatgpt resume --last
+bash bin/codex-termux connect --chatgpt fork --last
+bash bin/codex-termux manage server stop
+# Independent foreground recovery, available at any time:
+bash bin/codex-termux --wrapper-no-update chatgpt --no-daemon
+```
+
+`manage server start --auth inherited|chatgpt [--port N]` detaches a native Node
+supervisor that owns the DNS/CONNECT proxy and launches the selected Codex
+runtime's `app-server`. The default port is temporary; `--port N` selects a
+loopback port explicitly. Only `127.0.0.1` is used. Port **4500 is reserved for
+externally managed testing** and rejected; its server/token are never inspected,
+adopted, or stopped. No npm discovery or automatic update runs on this path.
+
+`manage server status` checks a challenge-authenticated live supervisor, verifies
+an authenticated WebSocket upgrade, and verifies rejection without a token.
+It reports the address, auth mode, running runtime identity and whether the
+currently selected runtime matches. This establishes local transport
+authentication, **not** a healthy OpenAI account or a successful model request.
+`manage server stop` asks that verified supervisor to stop its own child and
+proxy. It works even if the selected runtime is no longer available. It affects
+active clients/work; stop only when you intend to end the server's work.
+
+`connect [--chatgpt] [--] [CODEX_ARGUMENTS...]` attaches only to a running managed
+instance. `resume` and `fork` and their remaining arguments pass through as an
+argument array. The client retains stdin/stdout/stderr, terminal handling, exit
+status, and the caller's directory (`--cd`/`-C` can override it). It starts no
+client proxy. It supplies `--remote` and `--remote-auth-token-env` itself and
+rejects those options and `--no-daemon` before Codex's own `--` delimiter.
+The first optional leading `--` belongs to the wrapper; a subsequent `--` is
+forwarded to Codex and ends option scanning. For example, `connect -- -- --remote`
+forwards `--remote` as literal prompt text. Positional `-C...`/`--cd` text after
+that delimiter does not suppress the default working directory. Use `run connect`
+if a future Codex command has the same name. Completion stays static and stops
+interpreting Codex arguments after the connection command's initial choices.
+
+### Authentication and instance selection
+
+Choose the server mode explicitly at start:
+
+- **`--auth chatgpt` + `connect --chatgpt`:** remove `OPENAI_API_KEY`,
+  `CODEX_API_KEY`, and `CODEX_ACCESS_TOKEN` from the app server and client, matching
+  the existing `chatgpt` command. Stored authentication/configuration still belong
+  to Codex; this does not prove that the stored account is a ChatGPT account.
+- **`--auth inherited` + `connect`:** retain the start-time environment, including
+  those three variables. Connections must have the same presence and values of
+  those variables. The comparison uses a private keyed digest; credentials are
+  never printed or written to wrapper state. Changing or unsetting a credential
+  requires an explicit stop and start when safe.
+
+A client invocation cannot change server authentication. Modes cannot be mixed,
+including attaching a ChatGPT-only client to an inherited server. Other inherited
+environment variables, provider configuration, profiles, and saved credentials
+are not fingerprinted. Dynamic changes to these are outside the first version's
+reuse contract: finish work and explicitly restart after changing them. Custom
+provider credential switching through client flags/environment is unsupported.
+No login/logout, model, sandbox, or approval policy is chosen by this feature.
+The existing foreground auth notices are unchanged; remote clients do not add an
+automatic log monitor. Use `manage auth-check` for the existing saved-log advisory.
+
+There is one instance per **wrapper data directory + canonical `CODEX_HOME`**.
+`CODEX_HOME` defaults to `$HOME/.codex`, must already exist, and must be an absolute
+path. Existing aliases to that directory select the same instance. Wrapper
+configuration and `CODEX_TERMUX_DATA_DIR`, XDG defaults, runtime override, CA,
+proxy allowlist, and proxy timeout are honored. Use the same overrides on every
+management/connection command. A different home or data directory selects a
+different instance; status prints its private instance directory.
+
+State lives under `$CODEX_TERMUX_DATA_DIR/servers/<home-hash>/` (or the usual
+wrapper data default). Directories are 0700; tokens and state are 0600. The
+supervisor has a private snapshot of the embedded runtime helper, so changing
+the checkout does not change an already-running supervisor. Capability tokens
+are cryptographically random. Tokens never appear in arguments, status, or
+wrapper diagnostics; the client receives its token via an environment variable.
+This is a same-Android-user boundary, not isolation from other Termux processes
+running as the same user.
+
+### Failure handling and limits
+
+Concurrent/duplicate starts are refused. Startup has a 12-second readiness
+budget, with up to five seconds for child shutdown and a 20-second controller
+wait. Port conflicts, unsupported WebSocket/auth flags, and authentication
+failures produce fixed diagnostics and the `--no-daemon` fallback. Raw app-server
+stdout/stderr are discarded, so startup errors cannot leak arbitrary credentials
+or fill a log. Codex may still write its own configured logs.
+
+Ordinary failed starts clean their owned state and proxy. Uncertain state,
+modified ownership, missing control proof, a killed supervisor, or a child that
+will not terminate are **retained and refused**. A PID, process name, or HTTP 200
+is never used to adopt or kill a process. There is no automatic stale-state
+recovery or `--force` kill. Keep the printed instance directory for review; do
+not delete its `active` directory or tokens to bypass a possibly live instance.
+After a force-stop/reboot, confirm all old processes are gone before manually
+archiving the affected instance state. Status/stop can fail when state is damaged;
+use independent foreground recovery while investigating. Do not target unrelated
+servers or the externally managed port 4500 instance.
+
+Server start validates the selected version and, for normal npm launches, the
+exact launcher/native package pairing. The running version and file identity
+are recorded. Status reports mismatches; connect refuses them. Runtime updates
+and rollback do not restart this server or delete its runtime; finish active
+work and stop/start explicitly to use a newly selected runtime. Do not manually
+delete or overwrite a runtime while a server uses it.
+
+The detached server/proxy can survive client exit and closure of the starting
+shell. Android can still kill background processes, including under memory or
+battery pressure. Force-stop, reboot, or killing the supervisor is not supported
+as a graceful shutdown. There is no boot service, wake lock, or automatic restart.
+If only the supervisor is forcibly killed, its child may remain; retained state
+requires owner review. Multi-client editing of the same conversation is left to
+Codex; this wrapper does not serialize conversations.
+
+### Owner-run acceptance using the existing login
+
+The owner completed this acceptance on September 26, 2026 in America/Los_Angeles
+(September 27 UTC), using Codex CLI 0.157.1 and the corrected feature candidate
+whose wrapper version was still 0.3.1. Model responses, actual `pwd`, deliberate
+client exit, starting-shell closure, explicit resume, Ctrl+C continuation, fork,
+and verified stop succeeded. The [owner acceptance record](docs/evidence/managed-server/owner-acceptance.md)
+preserves that candidate's identity; subsequent 0.4.0 fixture checks are separate.
+
+Run from the checkout and desired working directory, with your usual explicit
+sandbox/approval options where needed. This sequence uses your account and is
+separate from the automated fake-account transport tests:
+
+1. Start with `--auth chatgpt` and run `manage server status`, as above.
+2. Run `connect --chatgpt`. Ask for a short model response, then ask Codex to run
+   `pwd`. Confirm it reports the intended directory and follows your configured
+   approval policy. Record the conversation ID if selecting it explicitly later.
+3. Exit deliberately. Close the shell that started the server. In a new Termux
+   shell, return to the same directory and run `manage server status`.
+4. Run `connect --chatgpt resume --last` (or `resume CONVERSATION_ID`). Confirm
+   the same conversation, another response, and another actual `pwd` execution.
+   Try `connect --chatgpt fork CONVERSATION_ID` separately if desired.
+5. Check Ctrl+C during a request, continuation, normal exit, and server status.
+   Then run `manage server stop`; status should report stopped.
+
+These commands do not install the candidate. This checkout is now version 0.4.0
+for local release preparation; it has not been published by these steps.
+Do not replace published 0.3.1 assets.
 
 ## Install or update the wrapper package
 
@@ -55,7 +211,7 @@ installation works before the first release. Afterward:
 codex-termux manage self-update --check   # wrapper version comparison only
 codex-termux manage self-update          # confirm and update every package file
 codex-termux manage self-update --dry-run
-codex-termux manage self-update --version 0.3.1
+codex-termux manage self-update --version 0.4.0
 codex-termux manage self-update --repair  # repair missing links at the same version
 ```
 
@@ -427,7 +583,7 @@ output only; machine output and forwarded Codex output are never decorated.
 ```bash
 codex-termux --wrapper-color always --wrapper-banner always --help
 codex-termux --wrapper-color never --wrapper-banner never --help
-codex-termux --wrapper-version    # wrapper 0.3.1, no Node process
+codex-termux --wrapper-version    # wrapper 0.4.0, no Node process
 codex-termux --version            # original Codex --version behavior
 codex-termux --wrapper-info --json
 codex-termux --wrapper-dry-run chatgpt --sandbox danger-full-access
@@ -506,7 +662,7 @@ passes `OPENAI_API_KEY` on stdin to Codex, without including the key in argv.
 ```bash
 python3 tools/build.py
 python3 -B tools/verify.py
-python3 -B tools/release.py --tag v0.3.1
+python3 -B tools/release.py --tag v0.4.0
 # Optional, measured separately from correctness checks:
 python3 -B tools/bench.py
 ```

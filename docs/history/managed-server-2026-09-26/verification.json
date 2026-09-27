@@ -1,0 +1,72 @@
+{
+  "schema_version": 1,
+  "date": "2026-09-26",
+  "base_commit": "60da03eb3078b19cab2c438f25f21ecd08878f4d",
+  "branch": "feat/managed-app-server",
+  "wrapper_version": "0.3.1",
+  "host": "Native Android ARM64 / Termux",
+  "node": "v26.4.0",
+  "python": "3.14.6",
+  "bash": "5.3.20",
+  "zsh": "5.9.2",
+  "suites": {
+    "runtime": 18,
+    "wrapper": 30,
+    "managed_server": 16,
+    "package": 27,
+    "release": 3
+  },
+  "checks": [
+    "python3 tools/build.py --check",
+    "python3 -B tools/verify.py",
+    "git diff --check"
+  ],
+  "optional_skips": [
+    "groff unavailable; manual rendering not tested"
+  ],
+  "native_transport": {
+    "codex_version": "0.157.1",
+    "script": "tools/native_server_smoke.py",
+    "credentials": "fake API key; empty owned HOME and CODEX_HOME",
+    "passed": [
+      "paired runtime validation",
+      "detached shell HUP",
+      "authenticated WebSocket upgrade and unauthenticated rejection",
+      "initialize RPC",
+      "deliberate client socket exit",
+      "server and proxy preservation",
+      "connect --help parsing",
+      "verified stop closes all owned ports"
+    ],
+    "not_tested": [
+      "live account",
+      "model response",
+      "shell execution",
+      "interactive resume/fork",
+      "force-stop or reboot survival",
+      "Android battery-pressure longevity"
+    ]
+  },
+  "input_sha256": {
+    "VERSION": "79e3f22ca37c7fdf4c29ae3648d6b008c3cb6547260a453409275470919dc674",
+    "src/frontend.sh": "a47881c57db99cb041356d36918c76b6bb4ea7a69e7beb2f0bc0ca2279d2c233",
+    "src/runtime.cjs": "e519bac4ecff9bfa60a70f285d0296558b4d9ac52d758aa742a79ef3156464aa",
+    "completions/codex-termux.bash": "125033720b6d087d33c32220fce754fbe1b7d51f0300544ac8451dc0f8a91b98",
+    "completions/_codex-termux": "f67f8c2351a127461cd2b973f3f6ec1c47c0c64d70ed6ead9b97e785053cd7a8",
+    "man/codex-termux.1.in": "11353955eb45523d37d5c72856827fff4b636794b5a6fc00e97d553d7fb93322",
+    "bin/codex-termux": "249cf66ed37dd4f86226fce91b00f8bb284520f484e113f78eda5358fc92d116",
+    "man/codex-termux.1": "4fe16c1cfe8ee19ea6a615d816f3b99746ee54ba643680e265ec44687e17ca4f",
+    "README.md": "dfb2e80ff373bceb9ae1d312d723e0ef50a5b4c1fea69c2d74f80c27d9baaad5",
+    "CHANGELOG.md": "0b665d5f8e80c3f1d7100abcd9970544fef9ee5a923c90772e94563037df6fd8",
+    "RELEASING.md": "19ec7fa90d4f77cbfae8dd7f69b17c04fe9935464f09e43bb832de4102693438",
+    "PACKAGE-SHA256SUMS": "78e9da7ed77ebff07129965e5fe8256a6cb7fc8563e91bbdce104ff59c4fdc7f",
+    "tools/build.py": "576ddef86559b89bba0a69ca8612364977cc5e71975640acfa7860c1f8c3c6ad",
+    "tools/verify.py": "af29af777dda46b1f74df78f056442de75ded51c512c7b410a88d9423bdabeea",
+    "tools/native_server_smoke.py": "e8bf7c11a5e1758b8533df9e4c67a827e761762bb2846463ea1da6c94947a55e",
+    "tests/runtime.test.cjs": "db9c706815f8d3573ba96c8218230b0454a2a919d59aa65ae20dd98972a20cfc",
+    "tests/test_wrapper.py": "ad0cf8c84621751ab7debed0901168c68a2dbd1a7d2bc519d1dff1b3c3ba8e08",
+    "tests/test_server.py": "cdf52b2154e74f238d5dde26582a81bbe4034bf21a7b5ccaa51c8085dc63dded",
+    "tests/test_package.py": "daf687e088b4b0146d2a113f6433d40b80dc5d10bae48670bda79bb0278c7b9e",
+    "tests/test_release.py": "da6586fd8f638ce3e0b89842bf2025cbe16b6bbf489120ab7d08a0cbc9fcaa1d"
+  }
+}

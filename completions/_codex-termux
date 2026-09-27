@@ -29,7 +29,7 @@ _codex_termux() {
       if [[ -z $action ]]; then
         label='codex (termux)'
         choices=(
-          'run:Launch Codex' 'chatgpt:Launch without API-key variables'
+          'connect:Attach to the managed app server' 'run:Launch Codex' 'chatgpt:Launch without API-key variables'
           'login:ChatGPT device login' 'login-api:Use OPENAI_API_KEY'
           'status:Show authentication status' 'logout:Remove stored login'
           'doctor:Run Codex doctor' 'test:Check DNS and HTTPS transport'
@@ -44,10 +44,19 @@ _codex_termux() {
           '--wrapper-debug:Show fixed diagnostic events')
       elif [[ $action == manage ]]; then
         if ((i == CURRENT)); then
-          label='maintenance'; choices=('check:Inspect local prerequisites' 'auth-check:Inspect saved MCP token-expiry errors' 'update:Check or install Codex npm runtime' 'rollback:Switch to the previous npm runtime' 'self-update:Update wrapper, completion and manual' 'uninstall:Remove wrapper package files' 'config:Show settings or example' 'help:Show help')
+          label='maintenance'; choices=('server:Manage the opt-in app server' 'check:Inspect local prerequisites' 'auth-check:Inspect saved MCP token-expiry errors' 'update:Check or install Codex npm runtime' 'rollback:Switch to the previous npm runtime' 'self-update:Update wrapper, completion and manual' 'uninstall:Remove wrapper package files' 'config:Show settings or example' 'help:Show help')
         else
           sub=${words[i]}; label='maintenance option'
           case $sub in
+            server)
+              if ((i+1 == CURRENT)); then choices=('start:Detach app server and proxy' 'status:Verify owned server' 'stop:Stop owned server and proxy')
+              elif [[ ${words[i+1]} == start ]]; then
+                case $prev in
+                  --auth) choices=('inherited:Keep start-time credentials' 'chatgpt:Remove API credential variables') ;;
+                  --port) return 1 ;;
+                  *) choices=('--auth:Required start-time mode' '--port:Loopback port, default temporary') ;;
+                esac
+              fi ;;
             check) choices=('--json:Machine-readable local report') ;;
             auth-check) choices=('--json:Machine-readable saved-log evidence') ;;
             update) [[ $prev != --version ]] || return 1; choices=('--check:Check only' '--json:JSON for --check' '--yes:Authorize installation' '--version:Select exact stable version') ;;
@@ -64,6 +73,8 @@ _codex_termux() {
             config) ((i+1 == CURRENT)) || return 1; choices=('show:Effective nonsecret settings' 'example:Literal configuration template') ;;
           esac
         fi
+      elif [[ $action == connect ]] && ((i == CURRENT)); then
+        label='managed connection'; choices=('--chatgpt:Require ChatGPT-mode server' '--:End wrapper connect options' 'resume:Resume a conversation' 'fork:Fork a conversation')
       elif [[ $action == completion ]] && ((i == CURRENT)); then
         label='shell'; choices=('bash:Bash programmable completion' 'zsh:Zsh completion with descriptions')
       elif [[ $action == setup ]]; then

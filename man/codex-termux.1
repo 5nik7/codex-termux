@@ -1,4 +1,4 @@
-.TH CODEX-TERMUX 1 "2026-09-19" "codex-termux 0.3.1" "User Commands"
+.TH CODEX-TERMUX 1 "2026-09-19" "codex-termux 0.4.0" "User Commands"
 .SH NAME
 codex-termux \- run and maintain Codex in native Android Termux
 .SH SYNOPSIS
@@ -85,6 +85,59 @@ recovery backups, and private package history.
 .TP
 .B manage config show|example
 Print effective nonsecret settings or a literal configuration template.
+.SH MANAGED APP SERVER
+.B manage server start --auth inherited|chatgpt [--port N]
+starts an opt-in detached app server and native Node DNS/CONNECT proxy.
+Only 127.0.0.1 with capability-token authentication is supported. The default
+port is temporary; external port 4500 is reserved and rejected.
+This is a WebSocket workaround, not a repair of the upstream Unix-socket daemon.
+.PP
+.B manage server status
+verifies the live supervisor, authenticated WebSocket upgrade and unauthenticated
+rejection, and reports auth/runtime identity. This does not verify account health.
+.B manage server stop
+asks the verified supervisor to stop its own server and proxy, even if the
+selected runtime is missing. Stop ends active server work.
+.PP
+.B connect [--chatgpt] [--] [CODEX_ARGUMENTS...]
+connects to the managed instance, including resume and fork arguments.
+Preserves argument boundaries, cwd (overridable with --cd/-C), terminal streams,
+exit status and interrupt continuation. Rejects forwarded --remote,
+--remote-auth-token-env and --no-daemon before Codex's own -- delimiter.
+The first optional leading -- belongs to the wrapper. A subsequent -- and all
+following positional arguments are forwarded unchanged; option-like prompt text
+there does not suppress the default cwd. Ordinary launches are never rerouted.
+.PP
+The inherited mode retains start-time credentials and requires matching
+OPENAI_API_KEY, CODEX_API_KEY and CODEX_ACCESS_TOKEN presence/values on connect.
+The chatgpt mode removes these variables, and requires connect --chatgpt.
+A client cannot change server authentication. Saved auth remains Codex-controlled.
+Other provider environment/config changes require an explicit restart after work
+finishes; dynamic custom-provider credential switching is unsupported.
+.PP
+Instance selection is the wrapper data directory plus canonical CODEX_HOME
+(default HOME/.codex, an existing absolute directory). Existing wrapper path,
+CA, proxy and runtime overrides are honored. Private servers/home-hash state uses
+0700 directories and 0600 files. Tokens are never printed or put in arguments.
+The client receives a token through its environment. Same-user processes are
+within the trust boundary.
+.PP
+Duplicate starts and uncertain ownership/state are refused. Startup waits up to
+12 seconds for readiness, five seconds for cleanup, and 20 seconds in the caller.
+Raw server output is discarded; diagnostics contain only fixed events.
+Stop never signals a saved PID. Surviving state after a forced kill requires
+owner review; no automatic adoption, stale-state deletion or force kill exists.
+A runtime mismatch is reported by status and refused by connect. Update/rollback
+do not restart the server or delete its runtime.
+.PP
+The server/proxy survive client exit and starting-shell closure. Android may
+still kill them under memory/battery pressure. No force-stop/reboot survival,
+automatic restart, wake lock or boot service is promised. If the supervisor is
+forcibly killed, its child may survive and state must be reviewed.
+.PP
+Recovery: codex-termux --wrapper-no-update chatgpt --no-daemon
+(or run --no-daemon to retain API variables). See README for candidate and
+owner-run model-response, pwd, resume and stop acceptance sequences.
 .SH WRAPPER OPTIONS
 .TP
 .BR \-h ", " \-\-help

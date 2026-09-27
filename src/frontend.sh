@@ -124,6 +124,7 @@ usage() {
   printf '\n%sCommands%s\n' "$heading_color" "$reset"
   help_row "$command_color" run 'Launch Codex (default).'
   help_row "$command_color" chatgpt 'Launch without API-key variables.'
+  help_row "$command_color" 'connect [--chatgpt] [--] ...' 'Attach to the managed app server.'
   help_row "$command_color" login 'ChatGPT device login by default.'
   help_row "$command_color" login-api 'Use OPENAI_API_KEY on stdin.'
   help_row "$command_color" status 'Show Codex authentication status.'
@@ -150,6 +151,10 @@ usage() {
   help_row "$command_color" 'manage update [--check]' 'Update the Codex npm runtime.'
   help_row "$option_color" '  --check [--json]' 'Check npm updates without installing.'
   help_row "$option_color" '  [--yes] [--version X.Y.Z]' 'Authorize/pin npm installation.'
+  help_row "$command_color" 'manage server start' 'Detach server and proxy (opt-in).'
+  help_row "$option_color" '  --auth inherited|chatgpt' 'Required start-time authentication mode.'
+  help_row "$option_color" '  [--port N]' 'Loopback port; default temporary port.'
+  help_row "$command_color" 'manage server status|stop' 'Verify ownership and inspect/stop.'
   help_row "$command_color" 'manage rollback' 'Restore the previous npm runtime.'
   help_row "$command_color" 'manage self-update [--check]' 'Update this wrapper package.'
   help_row "$command_color" 'manage uninstall [--dry-run]' 'Remove wrapper package files.'
@@ -318,6 +323,7 @@ maintenance() {
       require_termux
       resolve_node || die "Node.js is required; run: $PROGRAM setup"
       runtime auth-check "$auth_log" "${1:+json}"; return ;;
+    server) managed_server "$@"; return ;;
     self-update|uninstall)
       package_tool "$action" "$@"; return ;;
     update|rollback) ;;
@@ -372,6 +378,80 @@ maintenance() {
   ((yes)) || confirm "Install and validate Codex $requested in a separate runtime?" || { note 'unchanged'; return 0; }
   note "staging Codex $requested; the current runtime stays available"
   runtime install "$data_dir" "$arch" "$requested" "$npm_bin"
+}
+# Server helpers never use start_proxy or update discovery. The supervisor owns
+# its proxy independently; connecting keeps the existing foreground wait loop.
+server_operation() {
+  runtime server "$1" "$data_dir" "$(readlink -f -- "${BASH_SOURCE[0]}")" "$installed_version" "$2" "$3" \
+    "$proxy_allow" "$proxy_connect_timeout" "$ca_bundle" "${codex_command[@]}"
+}
+managed_server() {
+  local operation=${1:-help} auth='' port=0 option
+  (($#)) && shift
+  case $operation in
+    help|-h|--help) usage; return ;;
+    start|status|stop) ;;
+    *) usage_error 'server requires start, status, or stop' ;;
+  esac
+  local -A seen=()
+  while (($#)); do
+    option=$1; shift
+    [[ $operation == start && ( $option == --auth || $option == --port ) && $# -gt 0 ]] || usage_error 'start accepts --auth inherited|chatgpt and --port N; status/stop accept no options'
+    [[ -z ${seen[$option]+yes} ]] || usage_error 'repeated server option'; seen[$option]=1
+    case $option in --auth) auth=$1 ;; --port) port=$1 ;; esac
+    shift
+  done
+  if [[ $operation == start ]]; then
+    [[ $auth == inherited || $auth == chatgpt ]] || usage_error 'start requires explicit --auth inherited or --auth chatgpt'
+    [[ $port =~ ^[0-9]{1,5}$ ]] && ((10#$port <= 65535 && 10#$port != 4500)) || usage_error 'port must be 0..65535, excluding externally managed port 4500'
+  fi
+  require_termux
+  resolve_node || die 'Node.js is required for managed server operations'
+  # Stop remains available when the selected runtime was removed or changed.
+  if [[ $operation != stop ]]; then
+    if resolve_codex; then probe_version || installed_version=''; fi
+    if [[ $operation == start ]]; then
+      [[ -n $installed_version ]] || die 'selected runtime validation failed; use run --no-daemon'
+      find_ca_bundle || die 'a working CA bundle is required'
+    fi
+  fi
+  server_operation "$operation" "$auth" "$port"
+}
+connect_server() {
+  local auth=inherited output url token_file status=0 arg has_cd=0
+  local -a cwd_args=()
+  if [[ ${1:-} == --chatgpt ]]; then auth=chatgpt; shift; fi
+  [[ ${1:-} != -- ]] || shift
+  for arg in "$@"; do
+    case $arg in
+      # The optional wrapper delimiter was consumed above. Keep Codex's own
+      # delimiter and following positional data unchanged in the forwarded array.
+      --) break ;;
+      -C|--cd|--cd=*|-C?*) has_cd=1 ;;
+      --no-daemon|--no-daemon=*|--remote|--remote=*|--remote-auth-token-env|--remote-auth-token-env=*)
+        usage_error 'connect supplies remote authentication; --remote, --remote-auth-token-env and --no-daemon are incompatible' ;;
+    esac
+  done
+  require_runtime
+  probe_version || die 'selected runtime validation failed; use run --no-daemon'
+  output=$(server_operation connect "$auth" 0) || return $?
+  IFS=$'\n' read -r url <<<"$output"
+  token_file=${output#*$'\n'}
+  [[ $url =~ ^ws://127\.0\.0\.1:[0-9]+$ && $token_file == /* ]] || die 'invalid server connection response'
+  local CODEX_TERMUX_SERVER_TOKEN
+  IFS= read -r CODEX_TERMUX_SERVER_TOKEN <"$token_file" || die 'managed server token unavailable'
+  [[ $CODEX_TERMUX_SERVER_TOKEN =~ ^[a-f0-9]{64}$ ]] || die 'invalid managed server token'
+  export CODEX_TERMUX_SERVER_TOKEN
+  trap ':' INT
+  trap 'interrupted TERM 143' TERM
+  trap 'interrupted HUP 129' HUP
+  # An explicit cwd also covers remote resume/fork. A later user --cd remains
+  # Codex's decision; argument values and boundaries are never reconstructed.
+  ((has_cd)) || cwd_args=(--cd "$PWD")
+  run_codex "$auth" --remote "$url" --remote-auth-token-env CODEX_TERMUX_SERVER_TOKEN "${cwd_args[@]}" "$@" || status=$?
+  unset CODEX_TERMUX_SERVER_TOKEN
+  trap - INT TERM HUP
+  return "$status"
 }
 package_tool() {
   local operation=$1 helper own folder arg force_remote=1 explicit_color=0
@@ -620,6 +700,7 @@ main() {
     -h|--help|help) (($# <= 1)) || usage_error 'help accepts no arguments'; usage; return ;;
     completion) (($# == 2)) || usage_error 'completion requires bash or zsh'; completion "$2"; return ;;
     manage) shift; maintenance "$@"; return ;;
+    connect) shift; connect_server "$@"; return ;;
     setup) shift; setup "$@"; return ;;
   esac
   case $action in
