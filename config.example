@@ -9,3 +9,7 @@ auth_notice=auto
 # proxy_allow=example.com
 # codex_bin=/absolute/path/to/codex
 # ca_bundle=/absolute/path/to/cert.pem
+
+# Explicit opt-in for the separately installed codex-remote service.
+connect_backend=managed
+runit_port=4511

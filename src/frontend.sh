@@ -11,6 +11,7 @@ proxy_allow='' codex_bin='' configured_ca='' debug=0 no_update=0 config_disabled
 config_file='' data_dir='' cache_dir='' arch='' pending_cache='' original_action=''
 config_explicit=0
 auth_notice=auto auth_log='' auth_monitor_log=''
+connect_backend=managed runit_port=4511
 declare -a codex_command=() prefix_args=()
 reset='' bold='' accent='' muted='' command_color='' option_color='' description_color='' heading_color=''
 
@@ -46,7 +47,7 @@ configure() {
       [[ -z ${seen[$key]+yes} ]] || die 'duplicate configuration key'
       seen[$key]=1
       case $key in
-        color|banner|auto_update|update_interval|proxy_connect_timeout|proxy_allow|codex_bin|auth_notice|auth_log) printf -v "$key" '%s' "$value" ;;
+        color|banner|auto_update|update_interval|proxy_connect_timeout|proxy_allow|codex_bin|auth_notice|auth_log|connect_backend|runit_port) printf -v "$key" '%s' "$value" ;;
         ca_bundle) configured_ca=$value ;;
         *) die 'unknown configuration key' ;;
       esac
@@ -59,6 +60,8 @@ configure() {
   proxy_allow=${CODEX_TERMUX_PROXY_ALLOW-$proxy_allow}
   codex_bin=${CODEX_TERMUX_CODEX_BIN-$codex_bin}
   configured_ca=${CODEX_TERMUX_CA_BUNDLE-$configured_ca}
+  connect_backend=${CODEX_TERMUX_CONNECT_BACKEND-$connect_backend}
+  runit_port=${CODEX_TERMUX_RUNIT_PORT-$runit_port}
   auth_notice=${CODEX_TERMUX_AUTH_NOTICE-$auth_notice}
   auth_log=${CODEX_TERMUX_AUTH_LOG-${auth_log:-${CODEX_HOME:-$HOME/.codex}/log/codex-tui.log}}
   data_dir=${CODEX_TERMUX_DATA_DIR:-${XDG_DATA_HOME:-$HOME/.local/share}/codex-termux}
@@ -71,6 +74,9 @@ configure() {
   case $color in auto|always|never) ;; *) usage_error 'color must be auto, always, or never' ;; esac
   case $banner in auto|always|never) ;; *) usage_error 'banner must be auto, always, or never' ;; esac
   case $auto_update in ask|notify|off) ;; *) die 'auto_update must be ask, notify, or off' ;; esac
+  case $connect_backend in managed|runit) ;; *) die 'connect_backend must be managed or runit' ;; esac
+  [[ $runit_port =~ ^[0-9]{1,5}$ ]] && ((10#$runit_port > 0 && 10#$runit_port <= 65535)) || die 'runit_port must be 1..65535'
+  runit_port=$((10#$runit_port))
   case $auth_notice in auto|off) ;; *) die 'auth_notice must be auto or off' ;; esac
   [[ $update_interval =~ ^[0-9]{1,7}$ ]] && ((10#$update_interval >= 3600 && 10#$update_interval <= 2592000)) || die 'update_interval must be 3600..2592000 seconds'
   [[ $proxy_connect_timeout =~ ^[0-9]{1,6}$ ]] && ((10#$proxy_connect_timeout >= 1000 && 10#$proxy_connect_timeout <= 120000)) || die 'proxy_connect_timeout must be 1000..120000 milliseconds'
@@ -124,7 +130,7 @@ usage() {
   printf '\n%sCommands%s\n' "$heading_color" "$reset"
   help_row "$command_color" run 'Launch Codex (default).'
   help_row "$command_color" chatgpt 'Launch without API-key variables.'
-  help_row "$command_color" 'connect [--chatgpt] [--] ...' 'Attach to the managed app server.'
+  help_row "$command_color" 'connect [--chatgpt] [--] ...' 'Attach using the configured server backend.'
   help_row "$command_color" login 'ChatGPT device login by default.'
   help_row "$command_color" login-api 'Use OPENAI_API_KEY on stdin.'
   help_row "$command_color" status 'Show Codex authentication status.'
@@ -255,6 +261,8 @@ color=auto
 banner=auto
 proxy_connect_timeout=10000
 auth_notice=auto
+connect_backend=managed
+runit_port=4511
 # auth_log=/absolute/path/to/codex-tui.log
 # proxy_allow=example.com
 # codex_bin=/absolute/path/to/codex
@@ -310,6 +318,7 @@ maintenance() {
         example) config_example ;;
         show)
           printf 'auto_update=%s\nupdate_interval=%s\ncolor=%s\nbanner=%s\nproxy_connect_timeout=%s\n' "$auto_update" "$update_interval" "$color" "$banner" "$proxy_connect_timeout"
+          printf 'connect_backend=%s\nrunit_port=%s\n' "$connect_backend" "$runit_port"
           printf 'auth_notice=%s\n' "$auth_notice"
           say '# Overrides: paths and additional hosts are omitted from this summary.' ;;
         *) usage_error 'config accepts show or example' ;;
@@ -434,13 +443,22 @@ connect_server() {
   done
   require_runtime
   probe_version || die 'selected runtime validation failed; use run --no-daemon'
-  output=$(server_operation connect "$auth" 0) || return $?
-  IFS=$'\n' read -r url <<<"$output"
-  token_file=${output#*$'\n'}
-  [[ $url =~ ^ws://127\.0\.0\.1:[0-9]+$ && $token_file == /* ]] || die 'invalid server connection response'
   local CODEX_TERMUX_SERVER_TOKEN
-  IFS= read -r CODEX_TERMUX_SERVER_TOKEN <"$token_file" || die 'managed server token unavailable'
-  [[ $CODEX_TERMUX_SERVER_TOKEN =~ ^[a-f0-9]{64}$ ]] || die 'invalid managed server token'
+  if [[ $connect_backend == runit ]]; then
+    [[ $auth == chatgpt ]] || usage_error 'runit connections require connect --chatgpt'
+    # Fixed private token location matches the separately installed service.
+    # The helper validates an opened file and both authenticated/unauthenticated
+    # handshakes. Never re-open the token in Bash after validation.
+    CODEX_TERMUX_SERVER_TOKEN=$(runtime runit-connect "$HOME/.local/share/codex-remote" "$runit_port") || return $?
+    url="ws://127.0.0.1:$runit_port"
+  else
+    output=$(server_operation connect "$auth" 0) || return $?
+    IFS=$'\n' read -r url <<<"$output"
+    token_file=${output#*$'\n'}
+    [[ $url =~ ^ws://127\.0\.0\.1:[0-9]+$ && $token_file == /* ]] || die 'invalid server connection response'
+    IFS= read -r CODEX_TERMUX_SERVER_TOKEN <"$token_file" || die 'managed server token unavailable'
+  fi
+  [[ $CODEX_TERMUX_SERVER_TOKEN =~ ^[a-f0-9]{64}$ ]] || die 'invalid server token'
   export CODEX_TERMUX_SERVER_TOKEN
   trap ':' INT
   trap 'interrupted TERM 143' TERM

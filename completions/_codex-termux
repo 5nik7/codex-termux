@@ -29,7 +29,7 @@ _codex_termux() {
       if [[ -z $action ]]; then
         label='codex (termux)'
         choices=(
-          'connect:Attach to the managed app server' 'run:Launch Codex' 'chatgpt:Launch without API-key variables'
+          'connect:Attach using the configured server backend' 'run:Launch Codex' 'chatgpt:Launch without API-key variables'
           'login:ChatGPT device login' 'login-api:Use OPENAI_API_KEY'
           'status:Show authentication status' 'logout:Remove stored login'
           'doctor:Run Codex doctor' 'test:Check DNS and HTTPS transport'
@@ -74,7 +74,7 @@ _codex_termux() {
           esac
         fi
       elif [[ $action == connect ]] && ((i == CURRENT)); then
-        label='managed connection'; choices=('--chatgpt:Require ChatGPT-mode server' '--:End wrapper connect options' 'resume:Resume a conversation' 'fork:Fork a conversation')
+        label='server connection'; choices=('--chatgpt:Require ChatGPT-mode server' '--:End wrapper connect options' 'resume:Resume a conversation' 'fork:Fork a conversation')
       elif [[ $action == completion ]] && ((i == CURRENT)); then
         label='shell'; choices=('bash:Bash programmable completion' 'zsh:Zsh completion with descriptions')
       elif [[ $action == setup ]]; then

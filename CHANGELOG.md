@@ -1,5 +1,12 @@
 # Changelog
 
+## 0.4.1 — unreleased
+
+- Add explicit runit connection backend for the existing codex-remote service.
+- Validate private token files and authenticated loopback WebSockets; preserve
+  managed mode as default, argument forwarding, exit status, and cwd behavior.
+- Service lifecycle remains owned by termux-services; no automatic migration.
+
 ## 0.4.0 — local release candidate, 2026-09-27
 
 - Add explicit `manage server start --auth inherited|chatgpt [--port N]`,
