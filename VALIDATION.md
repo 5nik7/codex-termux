@@ -1,5 +1,28 @@
 # Validation: codex-termux
 
+## 0.4.1 runit connection candidate — 2026-10-02 UTC
+
+Base: `30069c76967823a736fe7a1e6889b6dd192c0d3d` (main, wrapper 0.4.0).
+Local branch: `feat/runit-connect`. No release published or phone installation
+changed during preparation.
+
+Native Linux verification: `python3 -B tools/verify.py` passed: 18 Node runtime,
+30 wrapper, 20 server, 27 package and 3 release tests (98 total). Generated
+source checks, Bash/Zsh/Node syntax, documentation links and man rendering
+passed. `git diff --check` passed.
+
+The new runit fixture checks no-newline token acceptance, authenticated access,
+resume/fork/cwd/exit-status forwarding, API-variable stripping, no client proxy,
+wrong/missing server auth refusal, token mode and symlink refusal, private-parent
+requirements, stopped-server refusal, and no token disclosure in test output.
+These are fake-account local fixture checks, not Android acceptance of 0.4.1.
+
+The owner separately demonstrated on native Termux with Codex 0.160.0 that the
+existing codex-remote service starts, stops and releases port 4511, reconnects,
+registers remotely, and runs pwd in the intended repository using explicit
+remote flags. The new wrapper integration still needs the owner's native test.
+Remote pairing in the Android app remains unresolved.
+
 ## 0.4.0 local release-candidate verification — 2026-09-27
 
 VERSION was advanced to **0.4.0** after the corrected feature candidate's owner

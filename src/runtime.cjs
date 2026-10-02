@@ -664,7 +664,33 @@ async function managedServer(args) {
   console.log(`ws://127.0.0.1:${state.port}\n${path.join(active, 'ws.token')}`);
 }
 
+async function runitConnect(directory, portText) {
+  try {
+    const port = Number(portText);
+    if (!Number.isInteger(port) || port < 1 || port > 65535) throw new Error();
+    const dir = fs.lstatSync(directory);
+    if (!dir.isDirectory() || dir.isSymbolicLink() || dir.uid !== process.getuid() || (dir.mode & 0o077)) throw new Error();
+    const fd = fs.openSync(path.join(directory, 'token'), fs.constants.O_RDONLY | fs.constants.O_NOFOLLOW | fs.constants.O_NONBLOCK);
+    let token;
+    try {
+      const st = fs.fstatSync(fd);
+      if (!st.isFile() || st.uid !== process.getuid() || (st.mode & 0o077) || st.size < 64 || st.size > 65) throw new Error();
+      token = fs.readFileSync(fd, 'utf8').trim();
+      if (!/^[a-f0-9]{64}$/.test(token)) throw new Error();
+    } finally { fs.closeSync(fd); }
+    await authenticatedServer(port, token);
+    return token;
+  } catch (_) {
+    throw new Error('Runit connection refused: check sv status codex-remote, port, and private token permissions; no managed-server fallback');
+  }
+}
+
 async function main(args) {
+  if (args[0] === 'runit-connect') {
+    // Internal pipe to the frontend only; never include this in diagnostics.
+    process.stdout.write(await runitConnect(args[1], args[2]));
+    return;
+  }
   if (args[0] === "server-worker") return serverWorker(args[1]);
   if (args[0] === "server") {
     try { return await managedServer(args.slice(1)); }
@@ -747,7 +773,7 @@ async function main(args) {
 }
 module.exports = { stable, newer, privateDir, readRegular, atomic, selection, metadata, checkUpdate,
   cleanEnv, probe, validatePackage, install, rollback, allowHosts, authority, proxy,
-  authLogSnapshot, authLogEvidence, checkAuthLog, websocketCheck, authenticatedServer, main };
+  authLogSnapshot, authLogEvidence, checkAuthLog, websocketCheck, authenticatedServer, runitConnect, main };
 if (require.main === module || module.id === '[stdin]') {
   main(process.argv.slice(2)).catch(error => { process.stderr.write(`codex-termux: ${error.message}\n`); process.exitCode = 1; });
 }

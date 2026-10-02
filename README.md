@@ -1,4 +1,4 @@
-# codex-termux 0.4.0
+# codex-termux 0.4.1
 
 Run Codex's Linux npm build in **native Termux**, with Android DNS handled by
 native Node.js through a loopback proxy. No proot is required. Foreground
@@ -9,6 +9,47 @@ authenticated connections, resume, and fork. Existing launch, login, proxy,
 authentication recovery notices, and package/runtime management remain compatible.
 See the [0.4.0 release notes](docs/releases/v0.4.0.md) and
 [validation](VALIDATION.md) for evidence and remaining limitations.
+
+## Connect to an existing termux-services server
+
+For the separately installed `codex-remote` runit service, opt in with the
+literal wrapper configuration setting `connect_backend=runit`. The default is
+`managed`, preserving 0.4.0 behavior. Then run:
+
+```bash
+codex-termux --wrapper-no-update connect --chatgpt
+codex-termux --wrapper-no-update connect --chatgpt resume --last
+codex-termux --wrapper-no-update connect --chatgpt fork --last
+```
+
+One-shot selection before changing configuration:
+
+```bash
+CODEX_TERMUX_CONNECT_BACKEND=runit codex-termux --wrapper-no-update connect --chatgpt
+```
+
+This uses `ws://127.0.0.1:4511` and the existing private token at
+`$HOME/.local/share/codex-remote/token`. Set `runit_port` (or
+`CODEX_TERMUX_RUNIT_PORT`) only if the service listens on a different port.
+`CODEX_TERMUX_CONNECT_BACKEND` overrides the configuration setting.
+The directory must be owned by this user with no group/other permissions;
+the token must be an owner-only regular file, not a symlink. Tokens with or
+without a final newline are accepted. The client verifies an authenticated
+WebSocket upgrade and rejection of unauthenticated access before launching.
+Tokens stay out of argv and diagnostic output.
+
+This backend requires `--chatgpt`, preserves the caller's directory unless
+`--cd`/`-C` is supplied, forwards resume/fork and prompt arguments, and does not
+start another proxy. It never falls back to the managed backend. Unlike the
+managed backend, it has no server runtime fingerprint; keep the service and
+client on matching Codex versions and explicitly restart the service after
+runtime updates. It does not assert server account identity from a handshake.
+
+Manage this service with `sv status codex-remote`, `sv -w 20 down codex-remote`,
+`sv up codex-remote`, and `sv-enable codex-remote`. The wrapper's
+`manage server` commands still address only the legacy managed instance.
+This change does not install/enable a service, change credentials, or resolve
+Android remote pairing. Ordinary `chatgpt` and `run` commands are unchanged.
 
 ## Opt-in managed WebSocket app server
 

@@ -74,6 +74,50 @@ class ServerTests(unittest.TestCase):
             sock.sendall(b'CONNECT forbidden.invalid:443 HTTP/1.1\r\nHost: forbidden.invalid\r\n\r\n')
             self.assertIn(b'403 Forbidden', sock.recv(1024))
 
+    def test_runit_connection_and_private_token_refusals(self):
+        self.start('chatgpt')
+        state = self.state()
+        source = self.state_path().parent / 'ws.token'
+        directory = self.home / '.local/share/codex-remote'
+        directory.mkdir(parents=True, mode=0o700)
+        token = directory / 'token'
+        secret = source.read_text().strip()
+        token.write_text(secret)  # Deployed service token has no newline.
+        token.chmod(0o600)
+        env = {**self.env, 'CODEX_TERMUX_CONNECT_BACKEND': 'runit',
+               'CODEX_TERMUX_RUNIT_PORT': str(state['port'])}
+        for args in [('resume', '--last', 'prompt 雪'), ('fork', 'thread with spaces')]:
+            result = self.run_wrapper('connect', '--chatgpt', *args, env={**env, 'FIXTURE_EXIT': '37'})
+            self.assertEqual(result.returncode, 37, result.stderr)
+            record = json.loads(self.record.read_text())
+            self.assertEqual(record['args'][-len(args):], list(args))
+            self.assertEqual(record['args'][:6], ['--remote', f"ws://127.0.0.1:{state['port']}",
+                '--remote-auth-token-env', 'CODEX_TERMUX_SERVER_TOKEN', '--cd', str(self.root)])
+            self.assertFalse(record['api'])
+            self.assertFalse(record['access'])
+            self.assertEqual(record['proxy'], '')
+            self.assertNotIn(secret, result.stdout + result.stderr)
+        self.assertNotEqual(self.run_wrapper('connect', env=env).returncode, 0)
+        for mode in (0o644, 0o666):
+            token.chmod(mode)
+            result = self.run_wrapper('connect', '--chatgpt', env=env)
+            self.assertNotEqual(result.returncode, 0)
+            self.assertNotIn(secret, result.stdout + result.stderr)
+        token.chmod(0o600)
+        token.unlink()
+        token.symlink_to(source)
+        self.assertNotEqual(self.run_wrapper('connect', '--chatgpt', env=env).returncode, 0)
+        token.unlink()
+        token.write_text('f' * 64)
+        token.chmod(0o600)
+        self.assertNotEqual(self.run_wrapper('connect', '--chatgpt', env=env).returncode, 0)
+        token.write_text(secret)
+        directory.chmod(0o755)
+        self.assertNotEqual(self.run_wrapper('connect', '--chatgpt', env=env).returncode, 0)
+        directory.chmod(0o700)
+        self.assert_ok(self.run_wrapper('manage', 'server', 'stop'))
+        self.assertNotEqual(self.run_wrapper('connect', '--chatgpt', env=env).returncode, 0)
+
     def test_start_authentication_client_exit_and_stop(self):
         started = self.start()
         state = self.state()

@@ -328,3 +328,16 @@ Native Termux behavior must be checked on the user's device.
 .BR wget (1)
 .PP
 https://github.com/5nik7/codex-termux
+
+.SH RUNIT CONNECTIONS
+Set connect_backend=runit in wrapper configuration, or use
+CODEX_TERMUX_CONNECT_BACKEND=runit, to select the existing codex-remote service.
+The default backend is managed. Runit requires connect --chatgpt.
+The endpoint is ws://127.0.0.1:4511; runit_port or CODEX_TERMUX_RUNIT_PORT
+can override the port. The token is $HOME/.local/share/codex-remote/token.
+The directory and regular token file must be owner-only and not symlinks.
+No proxy or service is started by connect. Authentication is checked before
+launch; failure never falls back. Keep server/client Codex versions aligned;
+this backend has no managed runtime fingerprint.
+Use sv to manage the service. manage server continues to target the legacy
+managed instance. No service installation, auth change, or migration is implicit.
