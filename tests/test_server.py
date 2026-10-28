@@ -50,6 +50,7 @@ class ServerTests(unittest.TestCase):
         self.data = self.root / 'private data 雪'
         self.env['CODEX_TERMUX_DATA_DIR'] = str(self.data)
         self.env['CODEX_HOME'] = str(self.home / '.codex')
+        self.env['CODEX_TERMUX_CONNECT_BACKEND'] = 'managed'
 
     def tearDown(self):
         self.run_wrapper('manage', 'server', 'stop')
@@ -117,6 +118,53 @@ class ServerTests(unittest.TestCase):
         directory.chmod(0o700)
         self.assert_ok(self.run_wrapper('manage', 'server', 'stop'))
         self.assertNotEqual(self.run_wrapper('connect', '--chatgpt', env=env).returncode, 0)
+
+    def test_runit_default_backend_overrides_and_authenticated_check(self):
+        self.start('chatgpt')
+        state = self.state()
+        directory = self.home / '.local/share/codex-remote'
+        directory.mkdir(parents=True, mode=0o700)
+        secret = (self.state_path().parent / 'ws.token').read_text().strip()
+        token = directory / 'token'; token.write_text(secret); token.chmod(0o600)
+        service = self.prefix / 'var/service/codex-remote'; service.mkdir(parents=True)
+        sv = self.prefix / 'bin/sv'
+        sv.write_text('#!' + base.BASH + "\nprintf 'fixture sv status\\n'\n")
+        sv.chmod(0o755)
+        env = {key: value for key, value in self.env.items() if key != 'CODEX_TERMUX_CONNECT_BACKEND'}
+        env['CODEX_TERMUX_RUNIT_PORT'] = str(state['port'])
+        for options in [('--chatgpt',), ('--chatgpt', '--backend', 'runit'),
+                        ('--backend', 'runit', '--chatgpt'), ('--backend', 'managed', '--chatgpt')]:
+            result = self.run_wrapper('connect', *options, '--', '--', '--backend', 'literal', env=env)
+            self.assert_ok(result)
+            self.assertEqual(json.loads(self.record.read_text())['args'][-3:], ['--', '--backend', 'literal'])
+            self.assertNotIn(secret, result.stdout + result.stderr)
+        # CLI selection wins over the environment in both directions.
+        for backend, configured in [('runit', 'managed'), ('managed', 'runit'), ('runit', 'invalid')]:
+            self.assert_ok(self.run_wrapper('connect', '--backend', backend, '--chatgpt',
+                                           env={**env, 'CODEX_TERMUX_CONNECT_BACKEND': configured}))
+        for options in [('--backend',), ('--backend', 'bad'), ('--backend', 'runit', '--backend', 'managed'),
+                        ('--chatgpt', '--chatgpt')]:
+            self.assertEqual(self.run_wrapper('connect', *options, env=env).returncode, 2)
+        self.assertEqual(self.run_wrapper('connect', env=env).returncode, 2)
+        # check needs Node and the token, but no selected Codex binary or launch.
+        previous = self.record.read_bytes()
+        self.fake.unlink()
+        result = self.run_wrapper('manage', 'server', 'check', env=env)
+        self.assert_ok(result)
+        self.assertIn('Authenticated WebSocket ready', result.stdout)
+        self.assertEqual(self.record.read_bytes(), previous)
+        self.assertNotIn(secret, result.stdout + result.stderr)
+        for content in ('0' * 64, 'invalid'):
+            token.write_text(content)
+            result = self.run_wrapper('manage', 'server', 'check', env=env)
+            self.assertNotEqual(result.returncode, 0)
+            self.assertNotIn('Authenticated WebSocket ready', result.stdout)
+            self.assertNotIn(secret, result.stdout + result.stderr)
+        token.unlink()
+        self.assertNotEqual(self.run_wrapper('manage', 'server', 'check', env=env).returncode, 0)
+        token.write_text(secret); token.chmod(0o600)
+        self.assert_ok(self.run_wrapper('manage', 'server', 'stop'))
+        self.assertNotEqual(self.run_wrapper('manage', 'server', 'check', env=env).returncode, 0)
 
     def test_start_authentication_client_exit_and_stop(self):
         started = self.start()
@@ -208,6 +256,25 @@ class ServerTests(unittest.TestCase):
                 self.assert_ok(self.run_wrapper('connect', '--', *forwarded))
                 default = [] if cwd_args else ['--cd', str(self.root)]
                 self.assertEqual(json.loads(self.record.read_text())['args'], prefix + default + forwarded)
+
+    def test_pretty_managed_reports_keep_connection_protocol_literal(self):
+        env={**self.env,'CODEX_TERMUX_OUTPUT':'pretty','CODEX_TERMUX_COLOR':'always','CODEX_TERMUX_BANNER':'never'}
+        result=self.start(env=env)
+        self.assertIn('\x1b[1;32mRunning\x1b[0m',result.stdout)
+        result=self.run_wrapper('manage','server','status',env=env)
+        self.assert_ok(result)
+        self.assertIn('Managed server status',result.stdout)
+        self.assertIn('\x1b[1;32mmatches\x1b[0m',result.stdout.replace('Codex 0.153.4; ',''))
+        result=self.run_wrapper('connect','resume','--last',env=env)
+        self.assert_ok(result)
+        self.assertNotIn('\x1b',result.stdout)
+        self.assertEqual(json.loads(result.stdout)['args'][-2:],['resume','--last'])
+        result=self.run_wrapper('manage','server','stop',env=env)
+        self.assert_ok(result)
+        self.assertIn('[Done]',result.stdout)
+        result=self.run_wrapper('manage','server','status',env=env)
+        self.assert_ok(result)
+        self.assertIn('\x1b[1;33mStopped\x1b[0m',result.stdout)
 
     def test_duplicate_and_concurrent_starts(self):
         commands = [base.BASH, str(base.WRAPPER), 'manage', 'server', 'start', '--auth', 'inherited']

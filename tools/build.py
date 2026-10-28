@@ -29,6 +29,7 @@ def generated_files():
     release = version()
     text = (ROOT / 'src/frontend.sh').read_text(encoding='utf-8')
     for token, source in {
+        '@@UI@@': 'src/ui.sh',
         '@@RUNTIME@@': 'src/runtime.cjs',
         '@@BASH_COMPLETION@@': 'completions/codex-termux.bash',
         '@@ZSH_COMPLETION@@': 'completions/_codex-termux',
@@ -38,6 +39,9 @@ def generated_files():
         text = text.replace(token, (ROOT / source).read_text(encoding='utf-8').rstrip('\n'))
     generated = {'bin/codex-termux': text.replace('@@VERSION@@', release).encode()}
     template = (ROOT / 'src/package.sh').read_text(encoding='utf-8')
+    if template.count('@@UI@@') != 1:
+        raise SystemExit('missing or duplicate package UI marker')
+    template = template.replace('@@UI@@', (ROOT / 'src/ui.sh').read_text(encoding='utf-8').rstrip('\n'))
     for name, action in [('install.sh', 'install'), ('uninstall.sh', 'uninstall')]:
         generated[name] = template.replace('@@VERSION@@', release).replace('@@ACTION@@', action).encode()
     generated['man/codex-termux.1'] = (ROOT / 'man/codex-termux.1.in').read_text(encoding='utf-8').replace('@@VERSION@@', release).encode()

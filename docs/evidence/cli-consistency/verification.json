@@ -1,0 +1,170 @@
+{
+  "base_commit": "1e0815f210d1cdd083b6fefff77e9fa148bde552",
+  "branch": "main",
+  "wrapper_version": "0.4.1",
+  "environment": {
+    "platform": "Android-15-aarch64-64bit-ELF",
+    "architecture": "aarch64",
+    "termux_version": "0.119.0-beta.3",
+    "python": "3.14.8",
+    "node": "v26.12.1",
+    "bash": "GNU bash, version 5.3.20(1)-release (aarch64-unknown-linux-android)",
+    "zsh": "zsh 5.9.2 (aarch64-unknown-linux-android)",
+    "runit_packages": "runit\t2.3.1\ntermux-services\t0.13-1"
+  },
+  "full_verifier_clean_pass": false,
+  "full_verifier_runs": [
+    {
+      "log": "initial-verifier.md",
+      "exit_code": 1,
+      "results": {
+        "runtime": {
+          "passed": 18
+        },
+        "wrapper": {
+          "passed": 29,
+          "failed": 4
+        }
+      },
+      "failures": [
+        "test_auth_notice_after_tty_exit_preserves_status_and_filters_old_errors",
+        "test_auth_notice_honors_codex_home_and_wrapper_log_configuration",
+        "test_cached_update_prompt_decline_preserves_launch_and_no_update_suppresses_it",
+        "test_console_group_ctrl_c_reaches_child_and_cleans_proxy"
+      ],
+      "isolated_rerun": {
+        "passed": 4,
+        "seconds": 29.486
+      }
+    },
+    {
+      "log": "verify.md",
+      "exit_code": 1,
+      "results": {
+        "runtime": {
+          "passed": 18
+        },
+        "wrapper": {
+          "passed": 33
+        },
+        "server": {
+          "passed": 20,
+          "failed": 1
+        }
+      },
+      "failures": [
+        "test_connect_ctrl_c_continuation_term_and_piped_stdin"
+      ],
+      "isolated_rerun": {
+        "passed": 1,
+        "seconds": 13.025,
+        "log": "remaining-suites.md"
+      }
+    }
+  ],
+  "remaining_suites": {
+    "log": "remaining-suites.md",
+    "runit": {
+      "passed": 14,
+      "real_owned_services": 3
+    },
+    "package": {
+      "passed": 27,
+      "errors": 1,
+      "error": "test_remote_check_fetches_only_version_and_remote_install_pins_all_assets: unchanged 12-second timeout",
+      "isolated_rerun": {
+        "passed": 1,
+        "seconds": 9.465,
+        "log": "package-rerun.md"
+      }
+    },
+    "release": {
+      "earlier_focused_passed": 4,
+      "earlier_archive_fixture_timeout_seconds": 8,
+      "final_checks": "final-checks.md",
+      "final_passed": 4,
+      "final_seconds": 15.19
+    }
+  },
+  "timeout_policy": "No deadlines changed; causes not established. Isolated reruns are separate evidence, not a clean full-verifier pass.",
+  "coverage": [
+    "Root/server help ANSI roles, resets, 27-column labels, banner widths and plain modes",
+    "auto/always/never, NO_COLOR and TERM=dumb in owned PTYs",
+    "No Node/Codex startup for help; raw/machine/config/completion output unchanged",
+    "Package help via direct and piped Bash; wrapper color inheritance and explicit override",
+    "Bash/Zsh explicit-backend completion, single-use aliases and forwarding boundaries",
+    "Actual Bash/Zsh Tab completion",
+    "Native sv output unchanged with forced wrapper color",
+    "Repo-skill links and source-archive parity, 11 installed payloads"
+  ],
+  "interface_review": [
+    {
+      "controls": "managed backend; --auth; --port; --backend",
+      "decision": "retain",
+      "reason": "Distinct supported workflows remain useful; scope clarified in help and completion."
+    },
+    {
+      "controls": "server/connect completion and help; package help; development release example",
+      "decision": "update",
+      "reason": "Align styling, suggestions and current VERSION-based release guidance."
+    },
+    {
+      "controls": "configuration keys/defaults",
+      "decision": "retain",
+      "reason": "Consistency work does not change settings introduced by preceding runit work."
+    },
+    {
+      "controls": "public command/flag retirement",
+      "decision": "none",
+      "reason": "No obsolete public interface identified; future removals require documented deprecation/migration."
+    }
+  ],
+  "prior_evidence": {
+    "files": 29,
+    "changed": 0
+  },
+  "limitations": [
+    "groff unavailable; manual rendering not verified",
+    "Full verifier encountered intermittent fixture failures; isolated reruns passed",
+    "No native Linux, hosted CI, real-account or installed-wrapper acceptance",
+    "No live service changes, installation, tagging, pushing or publication"
+  ],
+  "final_checks": "final-checks.md",
+  "recorded_at": "2026-10-28T20:12:48.926555+00:00",
+  "source_sha256": {
+    "VERSION": "f62184cee8787f2f6941c82041a5725d4edc9aa293ebe5dbf664406e82ec1fe1",
+    "AGENTS.md": "86d36353c1d533f486fa914a23796714114c50a6f4ae483fd5946f4c8074a662",
+    "README.md": "1ee32fed39cc127a437f618ddb79f428a2891be6d57b5c788b153e1e62e52d55",
+    "CHANGELOG.md": "16cb7a8d1bacf0155554ad6403641a4c8d74f791b91d9d5659db4429857900fa",
+    "RELEASING.md": "7ebed48f8273237a82e97bffb00d3b8b431a283632e561f236fccb86d00f1a0f",
+    "VALIDATION.md": "bfd26691dcb1fdb55ea70ff560a9ac5d1680e72b5bf9d5454e91a13318b62e16",
+    "docs/CLI_MAINTENANCE.md": "756d659a184affe83885be788692b64405ce96093cf1751eb1fc07ab07237637",
+    ".agents/skills/codex-termux-cli-consistency/SKILL.md": "65921ce839e15ac5ef7d54cef4eba00939e3fe27b87e054f3b44c6444a569bb8",
+    ".agents/skills/codex-termux-cli-consistency/agents/openai.yaml": "c214b6750f6b8cf51b1615b27553f8cfbbaec31e71e86baa4c5d3626d630d954",
+    "src/frontend.sh": "302734fa0980ab3f374bba84d6cf36cea1368cfa387244584f9d5af5eea538c3",
+    "src/package.sh": "277665c8803ecfca007b3d8928a9e97caad6207b6092b98c61e3776e8f309763",
+    "src/runtime.cjs": "173fb557286682e61ece09755891b617eb6221d0677e381f54ef2377ec404764",
+    "completions/codex-termux.bash": "ed10b1b6fa961e0ef1f9bc845f433f63ad88dee0d025e5c72ce4748642da4688",
+    "completions/_codex-termux": "7901b50ce1c8bf7a77de8b0c0555ee0764b9835148c18a80e4d0bbd898498548",
+    "man/codex-termux.1.in": "25ab196bb3ad2668271258e776218bf1d77ef4ae75217b258313d826cac8b75d",
+    "bin/codex-termux": "2c3088d388ed2d98e16552167b932389a7b59dddec19bad6405b48f622bd4853",
+    "install.sh": "42e1c8384a54ca8a24fb0d95bb98c6246a79a683daa2fc15699c8780d98e02cd",
+    "uninstall.sh": "47769a12b1ec5f6835f17c0f15cb43df6396615edd1f589a96ac22be45808972",
+    "man/codex-termux.1": "6c0c002d881fa5245968a39d09c7eca109af371979563ce7549eef2d7091e43d",
+    "PACKAGE-SHA256SUMS": "27eab7f72ba8106be32a2ccd18dc4d2a706ff6159ed1bbeb2496218b83e9d4fd",
+    "tests/test_wrapper.py": "55255abe2642b9bad6c3e1b75c9a40066a62dfc8feeec136075da6990470205b",
+    "tests/test_package.py": "2c8ce1e0ce12478410b0a6b176401ef6bea739428d442b43d08acb5a90aeccca",
+    "tests/test_release.py": "fad15c2a891f34f9ce323cc762d9c42c5f428c9a496a52b879ae97cffa2d5a6d",
+    "tests/test_runit.py": "0dc8c866cca7a18027c3c6cd5ef78997b9dd33ce9677d5979e648401b361887c",
+    "tools/release.py": "084eaf847ae09766e97d497fd72372c85923a8b67d9d288900c485407438fce3",
+    "tools/check_docs.py": "e92871fb7bd3d75c5856fe880daae9e95cec0da5a14c50a435f2665cd6e77447"
+  },
+  "final_check_results": {
+    "exit_code": 0,
+    "documentation_links": 77,
+    "installed_payloads": 11,
+    "skill_valid": true,
+    "generated_files_match": true,
+    "git_diff_check": true
+  }
+}

@@ -1,0 +1,4 @@
+interface:
+  display_name: "Codex Termux CLI Consistency"
+  short_description: "Keep CLI behavior, styling, and docs aligned"
+  default_prompt: "Use $codex-termux-cli-consistency to implement or review a CLI change and reconcile its output, help, manual, completion, and documentation."

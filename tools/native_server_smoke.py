@@ -76,6 +76,7 @@ ident = 'v' + version + '-0000000000000000'
 env = {'PATH': str(prefix / 'bin'), 'PREFIX': str(prefix), 'TERMUX_VERSION': 'native-smoke',
        'HOME': str(root / 'home'), 'CODEX_HOME': str(root / 'codex'), 'TMPDIR': str(root / 'tmp'),
        'CODEX_TERMUX_DATA_DIR': str(root / 'data'), 'CODEX_TERMUX_CACHE_DIR': str(root / 'cache'),
+       'CODEX_TERMUX_CONNECT_BACKEND': 'managed',
        'CODEX_TERMUX_AUTO_UPDATE': 'off', 'OPENAI_API_KEY': 'fake-native-smoke-never-real', 'TERM': 'xterm-256color'}
 command = [str(prefix / 'bin/bash'), str(ROOT / 'bin/codex-termux'), '--wrapper-no-config']
 

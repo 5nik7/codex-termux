@@ -4,8 +4,9 @@ _codex_termux() {
   emulate -L zsh
   setopt localoptions noshwordsplit extendedglob
   local cur=${words[CURRENT]} prev=${words[CURRENT-1]:-}
-  local action='' sub='' word label i=2
-  local -a choices
+  local action='' sub='' word label i=2 j pending backend operation canonical choice
+  local -A used=()
+  local -a choices filtered
   # Styled descriptions stay separate from inserted tokens; honor user styles.
   local description_format='%B%d%b' configured_format
   if [[ -z ${NO_COLOR+x} && ${TERM:-dumb} != dumb ]]; then
@@ -17,13 +18,14 @@ _codex_termux() {
   while ((i < CURRENT)); do
     word=${words[i]}
     case $word in
-      --wrapper-color|--wrapper-banner|--wrapper-config) ((i+=2)); continue ;;
+      --wrapper-color|--wrapper-banner|--wrapper-output|--wrapper-config) ((i+=2)); continue ;;
       --wrapper-no-config|--wrapper-no-update|--wrapper-debug|--wrapper-dry-run) ((i++)); continue ;;
     esac
     action=$word; ((i++)); break
   done
   case $prev in
     --wrapper-color|--wrapper-banner) [[ -z $action ]] || return 1; choices=('auto:Use terminal detection' 'always:Force styling' 'never:Disable styling'); label='display mode' ;;
+    --wrapper-output) [[ -z $action ]] || return 1; choices=('auto:Pretty in terminals' 'pretty:Format human reports' 'raw:Preserve raw output'); label='output mode' ;;
     --wrapper-config) [[ -z $action ]] || return 1; _files; return ;;
     *)
       if [[ -z $action ]]; then
@@ -39,23 +41,68 @@ _codex_termux() {
           '--wrapper-version:Show wrapper version' '--wrapper-info:Inspect local runtime'
           '--wrapper-dry-run:Describe launch without running it'
           '--wrapper-no-update:Disable automatic update work'
-          '--wrapper-color:Select color mode' '--wrapper-banner:Select header mode'
+          '--wrapper-output:Select human output mode' '--wrapper-color:Select color mode' '--wrapper-banner:Select header mode'
           '--wrapper-config:Read literal configuration' '--wrapper-no-config:Ignore configuration'
           '--wrapper-debug:Show fixed diagnostic events')
       elif [[ $action == manage ]]; then
         if ((i == CURRENT)); then
-          label='maintenance'; choices=('server:Manage the opt-in app server' 'check:Inspect local prerequisites' 'auth-check:Inspect saved MCP token-expiry errors' 'update:Check or install Codex npm runtime' 'rollback:Switch to the previous npm runtime' 'self-update:Update wrapper, completion and manual' 'uninstall:Remove wrapper package files' 'config:Show settings or example' 'help:Show help')
+          label='maintenance'; choices=('server:Control the configured server backend' 'check:Inspect local prerequisites' 'auth-check:Inspect saved MCP token-expiry errors' 'update:Check or install Codex npm runtime' 'rollback:Switch to the previous npm runtime' 'self-update:Update wrapper, completion and manual' 'uninstall:Remove wrapper package files' 'config:Show settings or example' 'help:Show help')
         else
           sub=${words[i]}; label='maintenance option'
           case $sub in
             server)
-              if ((i+1 == CURRENT)); then choices=('start:Detach app server and proxy' 'status:Verify owned server' 'stop:Stop owned server and proxy')
-              elif [[ ${words[i+1]} == start ]]; then
-                case $prev in
-                  --auth) choices=('inherited:Keep start-time credentials' 'chatgpt:Remove API credential variables') ;;
-                  --port) return 1 ;;
-                  *) choices=('--auth:Required start-time mode' '--port:Loopback port, default temporary') ;;
+              if ((i+1 == CURRENT)); then
+                choices=('start:Start service' 'status:Native service status' 'stop:Stop service' 'restart:Restart service' 'enable:Enable autostart and start' 'disable:Disable autostart and stop' 'is-enabled:Inspect autostart' 'logs:Read existing service logs' 'check:Check authenticated WebSocket' 'help:Show server help')
+              else
+                operation=${words[i+1]}; backend=''; pending=''; j=$((i+2))
+                while ((j < CURRENT)); do
+                  word=${words[j]}
+                  case $word in -w) word=--wait ;; -n) word=--lines ;; -f) word=--follow ;; esac
+                  [[ -n $word ]] || return 1
+                  [[ -z ${used[$word]+yes} ]] || return 1
+                  used[$word]=1
+                  case $word in
+                    --backend|--auth|--port|--wait|--lines)
+                      if ((j+1 == CURRENT)); then pending=$word; break; fi
+                      [[ $word != --backend ]] || backend=${words[j+1]}
+                      ((j+=2)) ;;
+                    --follow) ((j++)) ;;
+                    *) return 1 ;;
+                  esac
+                done
+                choices=('--backend:Override configured backend' '--help:Show server help')
+                case $operation in
+                  start)
+                    [[ $backend == managed ]] || choices+=('--wait:Runit wait seconds, default 20' '-w:Runit wait seconds')
+                    [[ $backend == runit ]] || choices+=('--auth:Managed start auth mode only' '--port:Managed loopback port only') ;;
+                  stop) [[ $backend == managed ]] || choices+=('--wait:Runit wait seconds, default 20' '-w:Runit wait seconds') ;;
+                  restart|enable|disable) choices+=('--wait:Runit wait seconds, default 20' '-w:Runit wait seconds') ;;
+                  logs) choices+=('--follow:Follow log rotation' '-f:Follow log rotation' '--lines:Number of lines, default 100' '-n:Number of lines') ;;
+                  status|is-enabled|check) ;;
+                  *) return 1 ;;
                 esac
+                if [[ $backend == managed && $operation != start && $operation != status && $operation != stop ]] ||
+                   [[ -n ${used[--backend]+yes} && $pending != --backend && $backend != managed && $backend != runit ]]; then choices=('--help:Show server help'); fi
+                if [[ -n $pending ]]; then
+                  filtered=()
+                  for choice in "${choices[@]}"; do
+                    [[ ${choice%%:*} != $pending ]] || filtered+=("$choice")
+                  done
+                  (( ${#filtered} )) || return 1
+                  case $pending in
+                    --backend) choices=('runit:Termux codex-remote service' 'managed:Legacy Node supervisor') ;;
+                    --auth) choices=('inherited:Keep start-time credentials' 'chatgpt:Remove API credential variables') ;;
+                    *) return 1 ;;
+                  esac
+                else
+                  filtered=()
+                  for choice in "${choices[@]}"; do
+                    canonical=${choice%%:*}
+                    case $canonical in -w) canonical=--wait ;; -n) canonical=--lines ;; -f) canonical=--follow ;; esac
+                    [[ -n ${used[$canonical]+yes} ]] || filtered+=("$choice")
+                  done
+                  choices=("${filtered[@]}")
+                fi
               fi ;;
             check) choices=('--json:Machine-readable local report') ;;
             auth-check) choices=('--json:Machine-readable saved-log evidence') ;;
@@ -65,16 +112,39 @@ _codex_termux() {
               case $prev in
                 --prefix|--source) _files -/; return ;;
                 --version) return 1 ;;
+                --output) choices=('auto:Pretty in terminals' 'pretty:Format human reports' 'raw:Preserve raw output'); _describe -t codex-termux-options 'output mode' choices; return ;;
                 --color) choices=('auto:Detect terminal' 'always:Force color' 'never:Disable color'); _describe -t codex-termux-options 'color mode' choices; return ;;
               esac
               if [[ $sub == self-update ]]; then
-                choices=('--check:Compare wrapper versions only' '--dry-run:Preview without installing' '--yes:Authorize installation' '--version:Select wrapper release' '--prefix:Owned install prefix' '--source:Built local source directory' '--remote:Read GitHub Releases' '--repair:Repair missing package links' '--recover:Recover an interrupted transaction' '--color:Select color mode' '--help:Show package help')
-              else choices=('--dry-run:Preview removal' '--yes:Authorize removal' '--prefix:Owned install prefix' '--color:Select color mode' '--help:Show package help'); fi ;;
+                choices=('--check:Compare wrapper versions only' '--dry-run:Preview without installing' '--yes:Authorize installation' '--version:Select wrapper release' '--prefix:Owned install prefix' '--source:Built local source directory' '--remote:Read GitHub Releases' '--repair:Repair missing package links' '--recover:Recover an interrupted transaction' '--color:Select color mode' '--output:Select human output mode' '--help:Show package help')
+              else choices=('--dry-run:Preview removal' '--yes:Authorize removal' '--prefix:Owned install prefix' '--color:Select color mode' '--output:Select human output mode' '--help:Show package help'); fi ;;
             config) ((i+1 == CURRENT)) || return 1; choices=('show:Effective nonsecret settings' 'example:Literal configuration template') ;;
           esac
         fi
-      elif [[ $action == connect ]] && ((i == CURRENT)); then
-        label='server connection'; choices=('--chatgpt:Require ChatGPT-mode server' '--:End wrapper connect options' 'resume:Resume a conversation' 'fork:Fork a conversation')
+      elif [[ $action == connect ]]; then
+        pending=''
+        while ((i < CURRENT)); do
+          word=${words[i]}
+          [[ -n $word ]] || return 1
+          [[ -z ${used[$word]+yes} ]] || return 1
+          used[$word]=1
+          case $word in
+            --chatgpt) ((i++)) ;;
+            --backend)
+              if ((i+1 == CURRENT)); then pending=$word; break; fi
+              case ${words[i+1]} in runit|managed) ;; *) return 1 ;; esac
+              ((i+=2)) ;;
+            *) return 1 ;;
+          esac
+        done
+        label='server connection'
+        if [[ -n $pending ]]; then
+          choices=('runit:Termux codex-remote service' 'managed:Legacy Node supervisor')
+        else
+          [[ -n ${used[--chatgpt]+yes} ]] || choices+=('--chatgpt:Require ChatGPT-mode server')
+          [[ -n ${used[--backend]+yes} ]] || choices+=('--backend:Override configured backend')
+          choices+=('--:End wrapper connect options' 'resume:Resume a conversation' 'fork:Fork a conversation')
+        fi
       elif [[ $action == completion ]] && ((i == CURRENT)); then
         label='shell'; choices=('bash:Bash programmable completion' 'zsh:Zsh completion with descriptions')
       elif [[ $action == setup ]]; then

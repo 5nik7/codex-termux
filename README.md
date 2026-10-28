@@ -1,20 +1,21 @@
-# codex-termux 0.4.1
+# codex-termux 0.4.2
 
 Run Codex's Linux npm build in **native Termux**, with Android DNS handled by
 native Node.js through a loopback proxy. No proot is required. Foreground
 launches use a temporary proxy; the opt-in managed app server owns its proxy.
 
-This local release candidate adds an opt-in managed WebSocket app server and
-authenticated connections, resume, and fork. Existing launch, login, proxy,
-authentication recovery notices, and package/runtime management remain compatible.
-See the [0.4.0 release notes](docs/releases/v0.4.0.md) and
+Version 0.4.2 makes the existing Termux runit service the default for
+server management and authenticated connections, resume, and fork. Existing
+launch, login, proxy, authentication recovery notices, and package/runtime
+management remain compatible.
+See the [release notes](docs/releases/v0.4.2.md) and
 [validation](VALIDATION.md) for evidence and remaining limitations.
 
 ## Connect to an existing termux-services server
 
-For the separately installed `codex-remote` runit service, opt in with the
-literal wrapper configuration setting `connect_backend=runit`. The default is
-`managed`, preserving 0.4.0 behavior. Then run:
+The default backend is now `runit`, targeting the separately installed
+`codex-remote` service. Existing explicit `connect_backend=managed` settings
+are honored. With runit selected:
 
 ```bash
 codex-termux --wrapper-no-update connect --chatgpt
@@ -22,16 +23,19 @@ codex-termux --wrapper-no-update connect --chatgpt resume --last
 codex-termux --wrapper-no-update connect --chatgpt fork --last
 ```
 
-One-shot selection before changing configuration:
+Override an existing configuration for one invocation:
 
 ```bash
-CODEX_TERMUX_CONNECT_BACKEND=runit codex-termux --wrapper-no-update connect --chatgpt
+codex-termux --wrapper-no-update connect --backend runit --chatgpt
 ```
 
 This uses `ws://127.0.0.1:4511` and the existing private token at
 `$HOME/.local/share/codex-remote/token`. Set `runit_port` (or
 `CODEX_TERMUX_RUNIT_PORT`) only if the service listens on a different port.
-`CODEX_TERMUX_CONNECT_BACKEND` overrides the configuration setting.
+`--backend runit|managed` overrides `CODEX_TERMUX_CONNECT_BACKEND`, which
+overrides the literal `connect_backend` setting. This precedence applies to
+both `connect` and `manage server`. Backend options for `connect` must precede
+Codex arguments or the optional wrapper `--` delimiter.
 The directory must be owned by this user with no group/other permissions;
 the token must be an owner-only regular file, not a symlink. Tokens with or
 without a final newline are accepted. The client verifies an authenticated
@@ -45,56 +49,145 @@ managed backend, it has no server runtime fingerprint; keep the service and
 client on matching Codex versions and explicitly restart the service after
 runtime updates. It does not assert server account identity from a handshake.
 
-Manage this service with `sv status codex-remote`, `sv -w 20 down codex-remote`,
-`sv up codex-remote`, and `sv-enable codex-remote`. The wrapper's
-`manage server` commands still address only the legacy managed instance.
-This change does not install/enable a service, change credentials, or resolve
-Android remote pairing. Ordinary `chatgpt` and `run` commands are unchanged.
+## Manage the Termux service
 
-## Opt-in managed WebSocket app server
+```bash
+codex-termux manage server start
+codex-termux manage server status
+codex-termux manage server restart --wait 30
+codex-termux manage server check
+codex-termux manage server logs --lines 50 --follow
+codex-termux manage server stop
+codex-termux manage server enable
+codex-termux manage server disable
+codex-termux manage server is-enabled
+codex-termux manage server help
+```
 
-This checkout adds a wrapper-managed **WebSocket** app server. It is a workaround
+Use `--backend runit` after the subcommand to override a legacy configuration.
+`start`, `stop`, and `restart` call `sv -w N` with the matching action; the wait
+is 20 seconds by default, or `--wait N` / `-w N` (1–300). They leave autostart
+unchanged. Native runit exit status is preserved, including failures and timeouts;
+raw output retains its bytes while terminal views add readable fields. The
+wrapper never escalates to forced termination. `status` can
+return success for a stopped service. A rapid restart can return before a
+subsequent status observes the replacement; use `check` for endpoint readiness.
+
+`enable` removes the service's `down` marker and starts it; `disable` creates
+that marker and stops it. These use Termux's `sv-enable`/`sv-disable` convention
+with bounded lifecycle waits. The setting persists if the subsequent action
+fails, and the error reports that fact. `is-enabled` prints `enabled` (exit 0)
+or `disabled` (exit 1) in raw output, with a labeled state in pretty views;
+an unavailable or unsafe service produces an error.
+Autostart here means when the Termux service supervisor starts, not an Android
+boot or process-survival guarantee.
+
+The service directory is `${SVDIR:-$PREFIX/var/service}/codex-remote`. It must
+be owned by this user and not a symlink; existing `down` markers must be owned
+regular files, not symlinks. The wrapper does not install a service, start the
+global service daemon, rewrite the run script, or change its auth/port settings.
+If `sv` is missing, install `termux-services` explicitly; if supervision is
+missing, start it through your normal Termux service setup. `--auth`/`--port`
+are legacy managed-start options and are rejected for runit.
+
+`logs` reads `$HOME/.local/share/codex-remote/log/current`, matching the existing
+service's logger. The default is 100 lines; `--lines N` / `-n N` accepts
+1–10,000. `--follow` / `-f` follows rotation; Ctrl+C exits without controlling
+the service. It reads existing logs and creates no additional recording.
+
+`check` reports native runit status, then validates the private token and both
+an authenticated WebSocket upgrade and rejection without authentication. It
+needs Node but does not launch Codex, require a selected runtime, print tokens,
+or test account health. Lifecycle, status, autostart, logs, and help need no
+Node/npm/Codex. Failed checks never switch backends or start another proxy.
+
+Ordinary `chatgpt` and `run` commands are unchanged. Android remote pairing is
+outside this change. To try the candidate before installation, replace
+`codex-termux` in these examples with `bash bin/codex-termux` from this checkout.
+
+Root and server help share semantic colors, aligned command/option rows, and
+responsive banner controls. Package help uses the same row styling with compact
+branding. Automatic color is suppressed for redirected output, `TERM=dumb`,
+or `NO_COLOR`; explicit `--wrapper-color always` still forces color, and
+`never` disables it. Package `--color` overrides inherited wrapper color.
+Human reports across the CLI now use compact sections, aligned values and clear
+success/warning/error states. Terminal service status includes readable fields
+and native details; logs highlight timestamps and severity while retaining the
+original lines. Narrow reports stack labels and values.
+
+Use `--wrapper-output auto|pretty|raw` before the command. The default `auto`
+formats terminal streams (except TERM=dumb) and preserves existing redirected
+output. `pretty` forces layout, independently of color. `raw` bypasses added
+formatting and wrapper colors/banners, even with `--wrapper-color always`.
+`NO_COLOR` removes automatic colors while keeping readable layout. stdout and
+stderr detect their terminals independently.
+
+```bash
+codex-termux --wrapper-output pretty --wrapper-color never manage check
+codex-termux --wrapper-output raw manage server status
+codex-termux --wrapper-output raw manage server logs > service.log
+```
+
+JSON, config examples, completion scripts, version scalars, internal helper
+protocols, and forwarded Codex streams remain literal. Raw service/log output
+retains its original bytes and exit status. Pretty logs remove incoming ANSI styling, then apply the wrapper palette to
+leading timestamps and severity. Consecutive logger/Codex timestamps, including
+the logger's underscore format, are retained. Other terminal-control characters
+remain visible escapes; literal backslash text is not decoded. Messages are
+never filtered or truncated. See the
+[output coverage and controls](docs/OUTPUT.md) for every CLI output route.
+
+Server completion respects an explicitly supplied `--backend`; without one it
+offers the applicable union because completion never reads configuration.
+Zsh labels backend-only options. Server/connect completion omits already-used
+single-use options, including their short/long aliases, and preserves argument
+and delimiter boundaries.
+
+## Legacy managed WebSocket app server
+
+Select `--backend managed` explicitly, or set `connect_backend=managed`, to
+use the retained wrapper-managed **WebSocket** app server. It is a workaround
 for the upstream Unix-socket daemon's `/tmp` limitation, not a repair of that
 daemon. Ordinary invocations and `run --no-daemon` keep their existing behavior.
 Nothing enables this feature automatically or edits Codex configuration.
 
 ```bash
 # Run the candidate directly, without installation. Reuse your existing login.
-bash bin/codex-termux --wrapper-no-update manage server start --auth chatgpt
-bash bin/codex-termux manage server status
-bash bin/codex-termux connect --chatgpt
+bash bin/codex-termux --wrapper-no-update manage server start --backend managed --auth chatgpt
+bash bin/codex-termux manage server status --backend managed
+bash bin/codex-termux connect --backend managed --chatgpt
 # Exit the client deliberately, then reconnect:
-bash bin/codex-termux connect --chatgpt resume --last
-bash bin/codex-termux connect --chatgpt fork --last
-bash bin/codex-termux manage server stop
+bash bin/codex-termux connect --backend managed --chatgpt resume --last
+bash bin/codex-termux connect --backend managed --chatgpt fork --last
+bash bin/codex-termux manage server stop --backend managed
 # Independent foreground recovery, available at any time:
 bash bin/codex-termux --wrapper-no-update chatgpt --no-daemon
 ```
 
-`manage server start --auth inherited|chatgpt [--port N]` detaches a native Node
+`manage server start --backend managed --auth inherited|chatgpt [--port N]` detaches a native Node
 supervisor that owns the DNS/CONNECT proxy and launches the selected Codex
 runtime's `app-server`. The default port is temporary; `--port N` selects a
 loopback port explicitly. Only `127.0.0.1` is used. Port **4500 is reserved for
 externally managed testing** and rejected; its server/token are never inspected,
 adopted, or stopped. No npm discovery or automatic update runs on this path.
 
-`manage server status` checks a challenge-authenticated live supervisor, verifies
+`manage server status --backend managed` checks a challenge-authenticated live supervisor, verifies
 an authenticated WebSocket upgrade, and verifies rejection without a token.
 It reports the address, auth mode, running runtime identity and whether the
 currently selected runtime matches. This establishes local transport
 authentication, **not** a healthy OpenAI account or a successful model request.
-`manage server stop` asks that verified supervisor to stop its own child and
+`manage server stop --backend managed` asks that verified supervisor to stop its own child and
 proxy. It works even if the selected runtime is no longer available. It affects
 active clients/work; stop only when you intend to end the server's work.
 
-`connect [--chatgpt] [--] [CODEX_ARGUMENTS...]` attaches only to a running managed
+`connect --backend managed [--chatgpt] [--] [CODEX_ARGUMENTS...]` attaches only to a running managed
 instance. `resume` and `fork` and their remaining arguments pass through as an
 argument array. The client retains stdin/stdout/stderr, terminal handling, exit
 status, and the caller's directory (`--cd`/`-C` can override it). It starts no
 client proxy. It supplies `--remote` and `--remote-auth-token-env` itself and
 rejects those options and `--no-daemon` before Codex's own `--` delimiter.
 The first optional leading `--` belongs to the wrapper; a subsequent `--` is
-forwarded to Codex and ends option scanning. For example, `connect -- -- --remote`
+forwarded to Codex and ends option scanning. For example, `connect --backend managed -- -- --remote`
 forwards `--remote` as literal prompt text. Positional `-C...`/`--cd` text after
 that delimiter does not suppress the default working directory. Use `run connect`
 if a future Codex command has the same name. Completion stays static and stops
@@ -104,11 +197,11 @@ interpreting Codex arguments after the connection command's initial choices.
 
 Choose the server mode explicitly at start:
 
-- **`--auth chatgpt` + `connect --chatgpt`:** remove `OPENAI_API_KEY`,
+- **`--auth chatgpt` + `connect --backend managed --chatgpt`:** remove `OPENAI_API_KEY`,
   `CODEX_API_KEY`, and `CODEX_ACCESS_TOKEN` from the app server and client, matching
   the existing `chatgpt` command. Stored authentication/configuration still belong
   to Codex; this does not prove that the stored account is a ChatGPT account.
-- **`--auth inherited` + `connect`:** retain the start-time environment, including
+- **`--auth inherited` + `connect --backend managed`:** retain the start-time environment, including
   those three variables. Connections must have the same presence and values of
   those variables. The comparison uses a private keyed digest; credentials are
   never printed or written to wrapper state. Changing or unsetting a credential
@@ -189,21 +282,20 @@ Run from the checkout and desired working directory, with your usual explicit
 sandbox/approval options where needed. This sequence uses your account and is
 separate from the automated fake-account transport tests:
 
-1. Start with `--auth chatgpt` and run `manage server status`, as above.
-2. Run `connect --chatgpt`. Ask for a short model response, then ask Codex to run
+1. Start with `--auth chatgpt` and run `manage server status --backend managed`, as above.
+2. Run `connect --backend managed --chatgpt`. Ask for a short model response, then ask Codex to run
    `pwd`. Confirm it reports the intended directory and follows your configured
    approval policy. Record the conversation ID if selecting it explicitly later.
 3. Exit deliberately. Close the shell that started the server. In a new Termux
-   shell, return to the same directory and run `manage server status`.
-4. Run `connect --chatgpt resume --last` (or `resume CONVERSATION_ID`). Confirm
+   shell, return to the same directory and run `manage server status --backend managed`.
+4. Run `connect --backend managed --chatgpt resume --last` (or `resume CONVERSATION_ID`). Confirm
    the same conversation, another response, and another actual `pwd` execution.
-   Try `connect --chatgpt fork CONVERSATION_ID` separately if desired.
+   Try `connect --backend managed --chatgpt fork CONVERSATION_ID` separately if desired.
 5. Check Ctrl+C during a request, continuation, normal exit, and server status.
-   Then run `manage server stop`; status should report stopped.
+   Then run `manage server stop --backend managed`; status should report stopped.
 
-These commands do not install the candidate. This checkout is now version 0.4.0
-for local release preparation; it has not been published by these steps.
-Do not replace published 0.3.1 assets.
+These acceptance commands do not install the wrapper. Version 0.4.2 includes
+the service-management and human-output changes described above.
 
 ## Install or update the wrapper package
 
@@ -322,6 +414,9 @@ recovery copies. A pre-existing unmanaged standalone wrapper is left alone.
 There is no purge or automatic history deletion. Add `--yes` only when you
 explicitly want unattended installation/removal. `--prefix DIR` selects an
 existing owned private prefix; `--color auto|always|never` controls package UI.
+`--output auto|pretty|raw` controls package report layout. Delegated commands
+inherit wrapper output mode unless a package option overrides it; standalone
+tools also honor `CODEX_TERMUX_OUTPUT` and do not read wrapper configuration.
 
 ## Fresh Termux setup
 
@@ -656,6 +751,7 @@ Wrapper options belong **before** the wrapper command; all arguments after
 | `CODEX_TERMUX_AUTH_LOG` | Existing diagnostic log; default under `$CODEX_HOME/log` or `$HOME/.codex/log` |
 | `CODEX_TERMUX_UPDATE_INTERVAL` | `86400`; range 3600–2592000 seconds |
 | `CODEX_TERMUX_COLOR` | `auto`; also `always` or `never` |
+| `CODEX_TERMUX_OUTPUT` | `auto`; also `pretty` or `raw`; config key `output` |
 | `CODEX_TERMUX_BANNER` | `auto`; also `always` or `never` |
 | `CODEX_TERMUX_PROXY_CONNECT_TIMEOUT` | `10000`; range 1000–120000 ms |
 | `CODEX_TERMUX_PROXY_ALLOW` | Extra allowed hostname trees, comma separated |
@@ -700,10 +796,18 @@ passes `OPENAI_API_KEY` on stdin to Codex, without including the key in argv.
 
 ## Development and verification
 
+Follow the [CLI maintenance and output style guide](docs/CLI_MAINTENANCE.md)
+and [repository consistency skill](.agents/skills/codex-termux-cli-consistency/SKILL.md)
+for CLI changes. Review related options/subcommands for continued usefulness,
+and update affected behavior, output, usage/help, manual, completion, config
+examples, docs, and validation together. Published interfaces require deprecation
+and migration guidance before removal; obsolete unreleased/internal controls
+can be removed after checking callers and tests.
+
 ```bash
 python3 tools/build.py
 python3 -B tools/verify.py
-python3 -B tools/release.py --tag v0.4.0
+# Release preparation is separate; use VERSION and RELEASING.md.
 # Optional, measured separately from correctness checks:
 python3 -B tools/bench.py
 ```
@@ -711,7 +815,7 @@ python3 -B tools/bench.py
 Python is a developer/test dependency, not a wrapper runtime dependency. Tests
 use private roots, mocked package operations, fake credentials, and loopback
 servers. Zsh acceptance includes actual Tab completion in a test-owned terminal.
-If Zsh is missing its two shell tests are explicitly skipped, not reported as
+If Zsh is missing its shell tests are explicitly skipped, not reported as
 verified. The Node helper tests require a Node version with `node:test`.
 
 `VERSION` is the wrapper package version. Build after changing source, completion,

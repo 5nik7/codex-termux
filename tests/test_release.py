@@ -64,7 +64,25 @@ class ReleaseTests(unittest.TestCase):
         self.assertTrue((source / 'man/codex-termux.1').is_file())
         self.assertTrue((source / 'docs/evidence/0.3.1/verification.json').is_file())
         for name in [
-            'tests/test_server.py', 'tools/native_server_smoke.py',
+            '.agents/skills/codex-termux-cli-consistency/SKILL.md',
+            '.agents/skills/codex-termux-cli-consistency/agents/openai.yaml',
+            'docs/CLI_MAINTENANCE.md',
+            'docs/OUTPUT.md', 'src/ui.sh', 'tests/test_presentation.py',
+            'docs/evidence/human-output/verification.json',
+            'docs/evidence/human-output/verify.md',
+            'docs/evidence/human-output/final-focused.md',
+            'docs/evidence/human-output/previews.md',
+            'docs/evidence/cli-consistency/verification.json',
+            'docs/evidence/cli-consistency/verify.md',
+            'docs/evidence/cli-consistency/initial-verifier.md',
+            'docs/evidence/cli-consistency/remaining-suites.md',
+            'tests/test_server.py', 'tests/test_runit.py', 'tools/native_server_smoke.py',
+            f'docs/releases/v{VERSION}.md',
+            'docs/evidence/0.4.2/verification.json',
+            'docs/evidence/0.4.2/verify.md',
+            'docs/releases/v0.4.1.md',
+            'docs/evidence/runit-management/verification.json',
+            'docs/evidence/runit-management/verify.md',
             'docs/releases/v0.4.0.md',
             'docs/evidence/0.4.0/verification.json',
             'docs/evidence/managed-server/verification.json',
@@ -77,6 +95,7 @@ class ReleaseTests(unittest.TestCase):
             with self.subTest(archive_member=name):
                 self.assertEqual((source / name).read_bytes(), (ROOT / name).read_bytes())
         subprocess.run([sys.executable, '-B', str(source / 'tools/build.py'), '--check'], check=True, stdout=subprocess.DEVNULL)
+        subprocess.run([sys.executable, '-B', str(source / 'tools/check_docs.py')], check=True, stdout=subprocess.DEVNULL)
         destination = self.root / 'owned prefix'; destination.mkdir()
         home = self.root / 'owned home'; home.mkdir()
         temp = self.root / 'tmp'; temp.mkdir()
@@ -88,6 +107,22 @@ class ReleaseTests(unittest.TestCase):
         child = subprocess.run([BASH, str(destination / 'bin/codex-termux'), '--wrapper-version'], env=env, capture_output=True, text=True, timeout=5)
         self.assertEqual(child.returncode, 0, child.stderr)
         self.assertEqual(child.stdout, 'codex-termux ' + VERSION + '\n')
+
+    def test_repo_skill_links_are_checked(self):
+        root = self.root / 'skill-links'; (root / 'tools').mkdir(parents=True)
+        checker = root / 'tools/check_docs.py'
+        shutil.copyfile(ROOT / 'tools/check_docs.py', checker)
+        skill = root / '.agents/skills/fixture'; skill.mkdir(parents=True)
+        (root / 'docs').mkdir(); guide = root / 'docs/guide.md'; guide.write_text('Guide\n')
+        (skill / 'SKILL.md').write_text('[Guide](../../../docs/guide.md)\n')
+        command = [sys.executable, '-B', str(checker)]
+        result = subprocess.run(command, text=True, capture_output=True, timeout=5)
+        self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+        guide.unlink()
+        result = subprocess.run(command, text=True, capture_output=True, timeout=5)
+        self.assertNotEqual(result.returncode, 0)
+        self.assertIn('missing local link', result.stderr)
+        self.assertIn('SKILL.md', result.stderr)
 
     def test_rejects_wrong_tag_and_existing_output_without_overwriting(self):
         for args in [('--tag', 'v9999.0.0', '--output', str(self.root / 'wrong')), ('--output', str(self.outputs[0]))]:

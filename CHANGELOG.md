@@ -1,6 +1,48 @@
 # Changelog
 
-## 0.4.1 — unreleased
+## 0.4.2 — 2026-10-28
+
+### Human CLI reports
+
+- Add terminal-first pretty reports across wrapper diagnostics, configuration,
+  updates, setup, package operations, service status and logs. Use compact
+  sections, semantic colors, explicit status words and narrow stacked layouts.
+- Add --wrapper-output auto|pretty|raw, CODEX_TERMUX_OUTPUT, output config, and
+  package --output. Raw mode preserves service/log bytes and suppresses wrapper
+  decoration; JSON, internal protocols and Codex streams remain literal.
+- Highlight log timestamps/severity without filtering messages; preserve
+  rotation, producer statuses and signal cleanup without recording new logs.
+- Remove incoming ANSI styling in pretty logs before adding wrapper colors,
+  avoiding visible \x1b sequences. Recognize consecutive logger/Codex timestamps
+  and underscore timestamps; retain other controls as safe visible escapes.
+- Share embedded Bash presentation helpers and matching Node roles. Extend
+  completion, manual, output coverage guidance, repo skill and regression tests.
+
+### CLI consistency
+
+- Add a discoverable repository skill and shared CLI-maintenance guide, required
+  by AGENTS.md for relevant changes. Review related controls for continued
+  usefulness and use deprecation/migration before removing published interfaces.
+- Style server help with the root help renderers and align package help colors
+  and label columns. Preserve plain/machine/native-service output contracts.
+- Filter server completion by explicit backend and omit already-used server and
+  connect options, including aliases; keep completion static and local.
+- Check repo-skill links and include contributor guidance in source archives.
+  Keep the installed package manifest at 11 payloads.
+
+### Termux service management
+
+- Make runit the default backend for connections and server management; honor
+  explicit managed configuration and add per-command `--backend` overrides.
+- Route server start/stop/status/restart through Termux `sv`; add bounded waits,
+  enable/disable/is-enabled, existing logs with rotation following, and an
+  authenticated connection check that never prints tokens.
+- Keep lifecycle operations independent of Node/Codex and retain the explicit
+  legacy supervisor. Preserve service definitions, credentials, native command
+  results, and autostart settings on lifecycle failure.
+- Update static Bash/Zsh completion, help/manual, and isolated regression tests.
+
+## 0.4.1 — initial runit connection candidate
 
 - Add explicit runit connection backend for the existing codex-remote service.
 - Validate private token files and authenticated loopback WebSockets; preserve

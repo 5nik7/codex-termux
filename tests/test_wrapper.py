@@ -4,6 +4,7 @@ import json
 import os
 from pathlib import Path
 import pty
+import re
 import select
 import shutil
 import signal
@@ -187,7 +188,7 @@ class WrapperTests(unittest.TestCase):
 
     def test_help_and_wrapper_version_do_not_need_node_or_termux(self):
         env = {'HOME': str(self.home), 'PATH': '/nonexistent', 'COLUMNS': '30'}
-        for args in [('--help',), ('--wrapper-version',), ('completion', 'bash'), ('completion', 'zsh')]:
+        for args in [('--help',), ('manage', 'server', '--help'), ('--wrapper-version',), ('completion', 'bash'), ('completion', 'zsh')]:
             result = self.run_wrapper(*args, env=env)
             self.assert_ok(result)
             self.assertNotIn('\x1b', result.stdout)
@@ -342,17 +343,43 @@ printf 'fixture-ca' >"$PREFIX/etc/tls/cert.pem"
     def test_responsive_header_and_no_color(self):
         for width in (12, 16, 30, 66, 100):
             env = {**self.env, 'COLUMNS': str(width), 'NO_COLOR': '1'}
-            result = self.run_wrapper('--wrapper-banner', 'always', '--help', env=env)
-            self.assert_ok(result)
-            header = result.stdout.split('\n\n')[0]
-            self.assertTrue(all(len(line) <= width for line in header.splitlines()))
-            self.assertNotIn('\x1b', result.stdout)
+            for args in [('--help',), ('manage', 'server', 'help')]:
+                result = self.run_wrapper('--wrapper-banner', 'always', *args, env=env)
+                self.assert_ok(result)
+                header = result.stdout.split('\n\n')[0]
+                self.assertTrue(all(len(line) <= width for line in header.splitlines()))
+                self.assertNotIn('\x1b', result.stdout)
 
     def test_help_uses_separate_command_option_and_description_colors(self):
-        result = self.run_wrapper('--wrapper-color', 'always', '--help')
-        self.assert_ok(result)
-        for style in ['\x1b[1;32m', '\x1b[1;33m', '\x1b[37m', '\x1b[1;35m']:
-            self.assertIn(style, result.stdout)
+        for args, command, option in [(('--help',), 'run', '--wrapper-color MODE'),
+                                      (('manage', 'server', 'help'), 'start', '-w, --wait N')]:
+            result = self.run_wrapper('--wrapper-color', 'always', '--wrapper-banner', 'never', *args)
+            self.assert_ok(result)
+            self.assertIn('\x1b[1;35mUsage\x1b[0m\n', result.stdout)
+            for style, label in [('1;32', command), ('1;33', option)]:
+                self.assertRegex(result.stdout, '  '+re.escape('\x1b['+style+'m'+label.ljust(27)+'\x1b[0m \x1b[37m')+r'[^\n]+\x1b\[0m\n')
+            if args == ('--help',):
+                for label in ('  start|stop|restart|status', '  enable|disable|is-enabled', '  logs|check|help'):
+                    self.assertIn('\x1b[1;32m'+label.ljust(27)+'\x1b[0m', result.stdout)
+            plain = self.run_wrapper('--wrapper-color', 'never', '--wrapper-banner', 'never', *args)
+            self.assertEqual(re.sub(r'\x1b\[[0-9;]*m', '', result.stdout), plain.stdout)
+        self.assertFalse(self.record.exists())
+
+    def test_help_color_modes_in_owned_tty_and_machine_output(self):
+        for args in [('--help',), ('manage', 'server', 'help')]:
+            for color, extra, expected in [('auto', {}, True), ('auto', {'NO_COLOR': '1'}, False),
+                                          ('auto', {'TERM': 'dumb'}, False), ('never', {}, False),
+                                          ('always', {'NO_COLOR': '1', 'TERM': 'dumb'}, True)]:
+                status, out = self.run_tty(['--wrapper-banner', 'never', '--wrapper-color', color, *args],
+                                           {**self.env, **extra})
+                self.assertEqual(status, 0, out)
+                self.assertEqual('\x1b[' in out, expected, (args, color, extra))
+            self.assertNotIn('\x1b', self.run_wrapper(*args).stdout)
+        for args in [('manage', 'config', 'example'), ('completion', 'bash'), ('completion', 'zsh')]:
+            plain = self.run_wrapper(*args)
+            forced = self.run_wrapper('--wrapper-color', 'always', '--wrapper-banner', 'always', *args)
+            self.assert_ok(forced)
+            self.assertEqual(forced.stdout, plain.stdout)
         self.assertFalse(self.record.exists())
 
     def test_term_signal_cleans_proxy_and_direct_child(self):
@@ -434,12 +461,78 @@ COMP_WORDS=(codex-termux manage server start --auth ch); COMP_CWORD=5
 _codex_termux_complete; printf '%s\n' "${COMPREPLY[@]}"
 COMP_WORDS=(codex-termux connect --ch); COMP_CWORD=2
 _codex_termux_complete; printf '%s\n' "${COMPREPLY[@]}"
+COMP_WORDS=(codex-termux manage server rest); COMP_CWORD=3
+_codex_termux_complete; printf '%s\n' "${COMPREPLY[@]}"
+COMP_WORDS=(codex-termux manage server logs --fo); COMP_CWORD=4
+_codex_termux_complete; printf '%s\n' "${COMPREPLY[@]}"
+COMP_WORDS=(codex-termux manage server start --backend ma); COMP_CWORD=5
+_codex_termux_complete; printf '%s\n' "${COMPREPLY[@]}"
+COMP_WORDS=(codex-termux connect --backend ru); COMP_CWORD=3
+_codex_termux_complete; printf '%s\n' "${COMPREPLY[@]}"
+COMP_WORDS=(codex-termux connect --backend runit --ch); COMP_CWORD=4
+_codex_termux_complete; printf '%s\n' "${COMPREPLY[@]}"
+COMP_WORDS=(codex-termux connect -- --backend ru); COMP_CWORD=4
+_codex_termux_complete; printf 'literal:%s\n' "${#COMPREPLY[@]}"
 COMP_WORDS=(codex-termux chatgpt manage up); COMP_CWORD=3
 _codex_termux_complete; printf 'passed:%s\n' "${#COMPREPLY[@]}"
 '''
         result = subprocess.run([BASH, '--noprofile', '--norc', '-c', script], env={**self.env, 'COMPLETION': str(ROOT / 'completions/codex-termux.bash')}, capture_output=True, text=True, timeout=5)
         self.assertEqual(result.returncode, 0, result.stderr)
-        self.assertEqual(result.stdout, 'update\nzsh\nself-update\n--check\nnever\nstart\nstatus\nchatgpt\n--chatgpt\npassed:0\n')
+        self.assertEqual(result.stdout, 'update\nzsh\nself-update\n--check\nnever\nstart\nstatus\nchatgpt\n--chatgpt\nrestart\n--follow\nmanaged\nrunit\n--chatgpt\nliteral:0\npassed:0\n')
+
+    def test_server_and_connect_completion_contexts(self):
+        cases = [
+            (['manage', 'server', 'start', ''], {'--backend', '--help', '--wait', '-w', '--auth', '--port'}),
+            (['manage', 'server', 'start', '--backend', 'runit', ''], {'--help', '--wait', '-w'}),
+            (['manage', 'server', 'start', '--backend', 'managed', ''], {'--help', '--auth', '--port'}),
+            (['manage', 'server', 'stop', '--backend', 'managed', ''], {'--help'}),
+            (['manage', 'server', 'restart', '--backend', 'managed', ''], {'--help'}),
+            (['manage', 'server', 'start', '--backend', 'invalid', ''], {'--help'}),
+            (['manage', 'server', 'start', '--backend', '', ''], {'--help'}),
+            (['manage', 'server', 'start', '--backend', 'runit', '-w', '20', ''], {'--help'}),
+            (['manage', 'server', 'start', '--wait', '20', ''], {'--backend', '--help', '--auth', '--port'}),
+            (['manage', 'server', 'logs', '-f', ''], {'--backend', '--help', '--lines', '-n'}),
+            (['manage', 'server', 'logs', '--follow', '-n', '5', ''], {'--backend', '--help'}),
+            (['manage', 'server', 'logs', '--lines', '5', ''], {'--backend', '--help', '--follow', '-f'}),
+            (['manage', 'server', 'start', '--auth', ''], {'inherited', 'chatgpt'}),
+            (['manage', 'server', 'start', '--backend', 'runit', '--auth', ''], set()),
+            (['manage', 'server', 'start', '--backend', ''], {'runit', 'managed'}),
+            (['manage', 'server', 'stop', '--backend', 'managed', '--wait', ''], set()),
+            (['manage', 'server', 'start', '--port', ''], set()),
+            (['manage', 'server', 'logs', '-f', '--follow', ''], set()),
+            (['manage', 'server', 'start', '', ''], set()),
+            (['connect', '--chatgpt', ''], {'--backend', '--', 'resume', 'fork'}),
+            (['connect', '--backend', 'runit', ''], {'--chatgpt', '--', 'resume', 'fork'}),
+            (['connect', '--chatgpt', '--backend', 'runit', ''], {'--', 'resume', 'fork'}),
+            (['connect', '--backend', ''], {'runit', 'managed'}),
+            (['connect', '--chatgpt', '--chatgpt', ''], set()),
+            (['connect', '--', '--backend', ''], set()),
+            (['connect', 'resume', '--backend', ''], set()),
+            (['connect', '', '--backend', ''], set()),
+            (['run', 'manage', 'server', 'start', ''], set()),
+        ]
+        bash = '''source "$COMPLETION"
+COMP_WORDS=("$@"); COMP_CWORD=$((${#COMP_WORDS[@]}-1))
+_codex_termux_complete
+printf '%s\\n' "${COMPREPLY[@]}"
+'''
+        zsh = '''source "$COMPLETION"
+_describe() { local array=$4 entry; for entry in "${(@P)array}"; do print -r -- "${entry%%:*}"; done; }
+words=("$@"); CURRENT=${#words}
+_codex_termux || true
+'''
+        for shell, code, file in [(BASH, bash, 'codex-termux.bash'), (ZSH, zsh, '_codex-termux')]:
+            if not shell: continue  # Actual Zsh acceptance has its own explicit skip.
+            for args, expected in cases:
+                with self.subTest(shell=shell, args=args):
+                    result = subprocess.run([shell, '-f' if shell == ZSH else '--norc', '-c', code,
+                                             'fixture', 'codex-termux', *args],
+                                            env={**self.env, 'COMPLETION': str(ROOT / 'completions' / file)},
+                                            text=True, capture_output=True, timeout=5)
+                    self.assertEqual(result.returncode, 0, result.stderr)
+                    self.assertEqual(result.stderr, '')
+                    self.assertEqual(set(filter(None, result.stdout.splitlines())), expected)
+        self.assertFalse(self.record.exists())
 
     def test_cached_update_prompt_decline_preserves_launch_and_no_update_suppresses_it(self):
         cache = self.home / '.cache/codex-termux'
@@ -507,10 +600,19 @@ words=(codex-termux manage uninstall --dry); CURRENT=4; _codex_termux
 
     @unittest.skipUnless(ZSH, 'Zsh is not installed')
     def test_zsh_actual_tab_completion_in_owned_pty(self):
+        self.actual_tab_completion(ZSH)
+
+    def test_bash_actual_tab_completion_in_owned_pty(self):
+        self.actual_tab_completion(BASH)
+
+    def actual_tab_completion(self, shell):
         # No live dotfiles, startup files, package work or external commands on Tab.
+        completion = 'completions/_codex-termux' if shell == ZSH else 'completions/codex-termux.bash'
+        args = [shell, '-f'] if shell == ZSH else [shell, '--noprofile', '--norc', '-i']
+        setup = 'autoload -Uz compinit; compinit -D -i; ' if shell == ZSH else ''
         child, master = pty.fork()
         if child == 0:
-            os.execve(ZSH, [ZSH, '-f'], {**self.env, 'ZDOTDIR': str(self.home), 'PS1': 'CT_PROMPT> '})
+            os.execve(shell, args, {**self.env, 'ZDOTDIR': str(self.home), 'PS1': 'CT_PROMPT> '})
         transcript = b''
         try:
             def send(text): os.write(master, text.encode())
@@ -523,7 +625,7 @@ words=(codex-termux manage uninstall --dry); CURRENT=4; _codex_termux
                         except OSError: break
                 self.assertIn(needle, transcript)
             until(b'CT_PROMPT>')
-            send("autoload -Uz compinit; compinit -D -i; source '" + str(ROOT / 'completions/_codex-termux') + "'; function codex-termux { print -r -- COMPLETED:$*; }; print READY_MARK\n")
+            send(setup + "source '" + str(ROOT / completion) + "'; function codex-termux { printf 'COMPLETED:%s\\n' \"$*\"; }; printf 'READY_MARK\\n'\n")
             until(b'READY_MARK\r\n')
             send('codex-termux manage up\t\n')
             until(b'COMPLETED:manage update')
@@ -533,6 +635,22 @@ words=(codex-termux manage uninstall --dry); CURRENT=4; _codex_termux
             until(b'COMPLETED:manage server start --auth chatgpt')
             send('codex-termux connect --ch\t\n')
             until(b'COMPLETED:connect --chatgpt')
+            send('codex-termux manage server rest\t\n')
+            until(b'COMPLETED:manage server restart')
+            send('codex-termux manage server logs --fo\t\n')
+            until(b'COMPLETED:manage server logs --follow')
+            send('codex-termux manage server start --backend ma\t\n')
+            until(b'COMPLETED:manage server start --backend managed')
+            send('codex-termux connect --backend ru\t--ch\t\n')
+            until(b'COMPLETED:connect --backend runit --chatgpt')
+            send('codex-termux manage server stop --backend managed --he\t\n')
+            until(b'COMPLETED:manage server stop --backend managed --help')
+            send('codex-termux manage server start --backend runit --wa\t30\n')
+            until(b'COMPLETED:manage server start --backend runit --wait 30')
+            send('codex-termux --wrapper-output pre\tmanage server status\n')
+            until(b'COMPLETED:--wrapper-output pretty manage server status')
+            send('codex-termux manage self-update --output ra\t\n')
+            until(b'COMPLETED:manage self-update --output raw')
             send('exit\n')
             _, status = os.waitpid(child, 0)
             self.assertEqual(os.waitstatus_to_exitcode(status), 0)
