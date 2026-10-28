@@ -1,0 +1,75 @@
+{
+  "recorded_at": "2026-10-28T19:13:05.116726+00:00",
+  "base_commit": "1e0815f210d1cdd083b6fefff77e9fa148bde552",
+  "branch": "main",
+  "wrapper_version": "0.4.1",
+  "environment": {
+    "platform": "Android-15-aarch64-64bit-ELF",
+    "architecture": "aarch64",
+    "termux_version": "0.119.0-beta.3",
+    "python": "3.14.8",
+    "node": "v26.12.1",
+    "bash": "GNU bash, version 5.3.20(1)-release (aarch64-unknown-linux-android)",
+    "zsh": "zsh 5.9.2 (aarch64-unknown-linux-android)",
+    "runit_packages": "runit\t2.3.1\ntermux-services\t0.13-1"
+  },
+  "full_verifier": {
+    "command": "python3 -B tools/verify.py",
+    "exit_code": 0,
+    "tests": 114,
+    "suites": {
+      "runtime": 18,
+      "wrapper": 31,
+      "server": 21,
+      "runit": 14,
+      "package": 27,
+      "release": 3
+    },
+    "log": "verify.md"
+  },
+  "runit_evidence": {
+    "routing_fixtures": 11,
+    "real_runit_tests": 3,
+    "owned_service_roots_only": true
+  },
+  "additional_focused_checks_passed": [
+    "RunitTests.test_backend_precedence_and_legacy_stop",
+    "ServerTests.test_runit_default_backend_overrides_and_authenticated_check"
+  ],
+  "local_skills_validated": [
+    "codex-termux-development",
+    "codex-termux-service-management"
+  ],
+  "limitations": [
+    "groff unavailable; rendered manual skipped",
+    "No real-account or installed-wrapper acceptance",
+    "No native Linux or hosted CI execution",
+    "No live service changes, installation, tagging, pushing, or publication"
+  ],
+  "source_sha256": {
+    "VERSION": "f62184cee8787f2f6941c82041a5725d4edc9aa293ebe5dbf664406e82ec1fe1",
+    "README.md": "4aec2d8830d43a6ba53009c44aa22caf309bb4d4b1d7ace6e2c641b0cd0c4b5f",
+    "CHANGELOG.md": "aac78d898fd0b424fd55dd0fc029186856a231b0f9aa3e5364ed24f1f14fd420",
+    "RELEASING.md": "bd387d88b70ae0e5ce5d112bb294684cbe116c7fa884fea1dc3383f612ad3187",
+    "VALIDATION.md": "e1de8842d554bff553b07a9d3fecc72498b1df2e0a31e43625bc7838f231161a",
+    "config.example": "3a39c939339e502bf529a2eb2ea5fb659b6bc4577af17025484d7ec06426fd03",
+    "PACKAGE-SHA256SUMS": "e13a0625f707d794bb522905b189ea4ee4633fdb28711fa56dda000ef50d1581",
+    "bin/codex-termux": "1a6d81a7cc035ce38bc981acbbc58834390f3ee5bb6bc8091d535012c2752cd0",
+    "man/codex-termux.1": "49b12b5aaa57a47a45f4a71d6b026036c4a6ada54fe9014c12f38314a8dbee68",
+    "man/codex-termux.1.in": "8431a666ad9d919ff84e9eb9810dcaaa1968f5b99b7da2c585e4b53f856a2827",
+    "src/frontend.sh": "c8f047b84cc5e92d2680eda3ebdfc0030167220e0b1e69ad63d7889f48055774",
+    "src/runtime.cjs": "173fb557286682e61ece09755891b617eb6221d0677e381f54ef2377ec404764",
+    "src/package.sh": "25dd007b2d95c54d284cee5af75fa42a599650cc5021347dd7a36ca82193190c",
+    "completions/codex-termux.bash": "9563e10853152d9ffc85fbfe64a3aa14bf5fe15c2193b0243d6a0d9c98e6a0c6",
+    "completions/_codex-termux": "03b2f9fd283c95afb74f56b557050ba421a7ab86d326654e296c141edcd1be57",
+    "tests/test_runit.py": "d200e4cbb49dcec1666f2a3cda0a5cd6a977eed0c7fd4446c09229fe9066b30e",
+    "tests/test_server.py": "9a6899b7b14a8c60afe302b11fb88c792d2c19f1ecb974fdc38a256a7a066b60",
+    "tests/test_wrapper.py": "fa47d4fac190963b1ff97d9b0c22d2ea8d1b6e8520ce103c9fef4aa56902b869",
+    "tests/test_release.py": "60e799f5135b3986b41790b074dfe2dc8cdb65baddaee1274a7c538a8a45d6d1",
+    "tools/verify.py": "df7603e5a6b3be2aa4548d609069492807efcf15be74906775c7e11d4b84388a",
+    "tools/build.py": "576ddef86559b89bba0a69ca8612364977cc5e71975640acfa7860c1f8c3c6ad",
+    "tools/native_server_smoke.py": "8cab9b01a1ff5cda317ec3644a4b60fe7a8cedb942e532191fc47d6ae174d58f",
+    "docs/releases/v0.4.1.md": "ff3189682db8dfafce6f66cbe4673da702a871efc37d9153ae96c24393702d53",
+    "docs/evidence/runit-management/verify.md": "25d52b07828a2f402687309c5d68d5507ee268b195cd620db1d965836ec2ce60"
+  }
+}

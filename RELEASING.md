@@ -1,6 +1,51 @@
 # Release codex-termux
 
-## Current local candidate: 0.4.0
+Before release preparation, apply the [CLI maintenance guide](docs/CLI_MAINTENANCE.md)
+and [repository skill](.agents/skills/codex-termux-cli-consistency/SKILL.md).
+Review the [output coverage matrix](docs/OUTPUT.md), including raw/pretty
+contracts, both streams, followed-log cleanup, and package output inheritance.
+Reconcile help, manual, completion, output, config examples and current docs,
+and review related controls for retain/update/deprecate/remove. Include the
+repository skill and guide in source archives while keeping the installed
+payload allowlist at 11 entries. Preserve historical evidence and record a new
+validation result after changes; prior passing evidence is not a new run.
+
+## Current release: 0.4.2
+
+Read the [release notes](docs/releases/v0.4.2.md) and
+[current validation](VALIDATION.md). This release includes Termux runit service
+management, human CLI reports, corrected colored-log rendering, and the shared
+CLI consistency workflow. Explicit managed-backend configuration remains valid.
+
+After finalizing source, documentation, and validation evidence:
+
+```bash
+python3 tools/build.py
+python3 tools/build.py --check
+python3 -B tools/verify.py
+git diff --check
+python3 -B tools/release.py --tag v0.4.2
+```
+
+The builder creates 15 assets in a new `dist/v0.4.2` directory. If it exists,
+choose a fresh output directory; never overwrite a published version. Verify
+`SHA256SUMS` (11 package payloads) and `RELEASE-SHA256SUMS` (14 entries including
+source archives and the smaller manifest) from the asset directory.
+
+Commit and push the release branch with an explicit source:destination refspec,
+open a PR, and merge only after verification passes. Tag the merged commit
+`v0.4.2` and push that specific tag. The tag workflow verifies the source and
+creates a draft; inspect its notes and all 15 assets, then publish as the latest
+stable release when authorized. Verify public downloads and the installer check
+and dry-run in owned temporary roots. Publication does not install locally.
+
+Keep earlier release assets, evidence, and historical notes unchanged. Tests
+use fake credentials and disposable roots, including real sv/runsv when
+available. Live-account, installed-wrapper, Android pairing, local Termux, and
+hosted Linux results must be reported separately. Do not use the live service
+as a test fixture.
+
+## Historical local candidate: 0.4.0
 
 VERSION is now 0.4.0 on `feat/managed-app-server`. Read the
 [release notes](docs/releases/v0.4.0.md) and [validation record](VALIDATION.md).

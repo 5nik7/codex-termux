@@ -1,0 +1,73 @@
+{
+  "recorded_at": "2026-10-28T22:45:18.172999+00:00",
+  "base_commit": "1e0815f210d1cdd083b6fefff77e9fa148bde552",
+  "branch": "release/0.4.2",
+  "version": "0.4.2",
+  "platform": "Android-15-aarch64-64bit-ELF",
+  "architecture": "aarch64",
+  "python": "3.14.8",
+  "node": "v26.12.1",
+  "bash": "GNU bash, version 5.3.20(1)-release (aarch64-unknown-linux-android)",
+  "zsh": "zsh 5.9.2 (aarch64-unknown-linux-android)",
+  "termux_version": "0.119.0-beta.3",
+  "groff": null,
+  "sv": "/data/data/com.termux/files/usr/bin/sv",
+  "runsv": "/data/data/com.termux/files/usr/bin/runsv",
+  "full_verifier": {
+    "result": "passed",
+    "tests": 133,
+    "suites": {
+      "runtime": 18,
+      "wrapper": 33,
+      "server": 22,
+      "runit": 14,
+      "presentation": 13,
+      "package": 29,
+      "release": 4
+    },
+    "source_hashes": {
+      "VERSION": "e2f7bb608ebc9e24092ffcb796ad0aa83f0015afe23635f017df52273150f00d",
+      "src/ui.sh": "d206f802b71129e9530d013e8f537d5234801342f39f0f3945c27a94e20c8c6e",
+      "src/frontend.sh": "668fe5e68d934bd868b5a4bb528fcc154d45cb6870b0f56e5a6ed928c71dc749",
+      "src/runtime.cjs": "8fdc57e8132320f7cbce5d4838fe98ceb55c397ebaf76ed5567de5721a5585c9",
+      "src/package.sh": "ecced109e3a18d22e74221ecf0436e50dd4efd7d8f76c453ab6e9f64d8068b82",
+      "bin/codex-termux": "7fd264bc7fe481c0ae87016efc087ab8f8e686aeda591f1591a8144a1d8c9568",
+      "install.sh": "15edabd4114b8786fc4d50438dee2a79030dcb31edaf2833555d60d2cb92e550",
+      "uninstall.sh": "248206715fd0a7ec44316a0271e03886b2e18c1e757a9eb1eb3c532f02039a24",
+      "tests/test_presentation.py": "8c77dc40de4b3b0730b1d1a08fd925b81d4234d1920d23a555e99dd7c819eb69",
+      "tests/test_release.py": "60991904437e1da52ed0320acd3f379beb55ef65d1a76f81e780f8a872e2fdee"
+    }
+  },
+  "focused": {
+    "result": "passed",
+    "presentation": 13,
+    "runit": 14
+  },
+  "final_source_hashes": {
+    "VERSION": "e2f7bb608ebc9e24092ffcb796ad0aa83f0015afe23635f017df52273150f00d",
+    "src/ui.sh": "d206f802b71129e9530d013e8f537d5234801342f39f0f3945c27a94e20c8c6e",
+    "src/frontend.sh": "668fe5e68d934bd868b5a4bb528fcc154d45cb6870b0f56e5a6ed928c71dc749",
+    "src/runtime.cjs": "8fdc57e8132320f7cbce5d4838fe98ceb55c397ebaf76ed5567de5721a5585c9",
+    "src/package.sh": "ecced109e3a18d22e74221ecf0436e50dd4efd7d8f76c453ab6e9f64d8068b82",
+    "bin/codex-termux": "7fd264bc7fe481c0ae87016efc087ab8f8e686aeda591f1591a8144a1d8c9568",
+    "install.sh": "15edabd4114b8786fc4d50438dee2a79030dcb31edaf2833555d60d2cb92e550",
+    "uninstall.sh": "248206715fd0a7ec44316a0271e03886b2e18c1e757a9eb1eb3c532f02039a24",
+    "tests/test_presentation.py": "8c77dc40de4b3b0730b1d1a08fd925b81d4234d1920d23a555e99dd7c819eb69",
+    "tests/test_release.py": "9796ae4499a0e1d85a86d3e1a219d0f129ad4bc0f51272f708ec1da1987cc7d1"
+  },
+  "regressions": "Two new log tests failed before the fix and passed afterward; no deadline changes.",
+  "post_verifier_changes": "Validation evidence and archive assertions only. No production code changed after the full verifier.",
+  "skips": [
+    "Local groff unavailable"
+  ],
+  "scope": "Native Android ARM64/Termux; fake accounts and owned roots, three real disposable sv/runsv checks. No live service, auth, installation, or shell startup changes. Hosted checks run separately.",
+  "historical_evidence_files_preserved": 42,
+  "final_archive_tests": {
+    "result": "passed",
+    "tests": 4,
+    "documentation_targets": 90,
+    "historical_evidence_unchanged": 42,
+    "package_checksums": "11 passed",
+    "release_checksums": "14 passed"
+  }
+}

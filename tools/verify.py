@@ -18,6 +18,8 @@ commands = [
     ['node', '--test', 'tests/runtime.test.cjs'],
     [sys.executable, '-B', 'tests/test_wrapper.py'],
     [sys.executable, '-B', 'tests/test_server.py'],
+    [sys.executable, '-B', 'tests/test_runit.py'],
+    [sys.executable, '-B', 'tests/test_presentation.py'],
     [sys.executable, '-B', 'tests/test_package.py'],
     [sys.executable, '-B', 'tests/test_release.py'],
     [sys.executable, '-B', 'tools/check_docs.py'],

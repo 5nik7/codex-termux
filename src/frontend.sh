@@ -2,22 +2,35 @@
 # Generated standalone release; edit src/ and run python3 tools/build.py.
 set -Eeuo pipefail
 
+@@UI@@
+
 readonly PROGRAM=${0##*/}
 readonly WRAPPER_VERSION=@@VERSION@@
 runtime_dir='' proxy_pid='' child_pid='' proxy_url='' node_bin='' ca_bundle=''
 codex_kind='' codex_launcher='' installed_version='' selected_runtime=system previous_runtime=-
-color=auto banner=auto auto_update=ask update_interval=86400 proxy_connect_timeout=10000
+color=auto banner=auto output=auto auto_update=ask update_interval=86400 proxy_connect_timeout=10000
 proxy_allow='' codex_bin='' configured_ca='' debug=0 no_update=0 config_disabled=0
 config_file='' data_dir='' cache_dir='' arch='' pending_cache='' original_action=''
 config_explicit=0
 auth_notice=auto auth_log='' auth_monitor_log=''
-connect_backend=managed runit_port=4511
+connect_backend=runit runit_port=4511
 declare -a codex_command=() prefix_args=()
 reset='' bold='' accent='' muted='' command_color='' option_color='' description_color='' heading_color=''
 
 say() { printf '%s\n' "$*"; }
 emit() { local row; while IFS= read -r row; do printf '%s\n' "$row"; done; }
-note() { printf '%s: %s\n' "$PROGRAM" "$*" >&2; }
+note() {
+  if ui_pretty 2; then
+    local role=info message=$*
+    case $message in error:*) role=error; message=${message#error: } ;; debug:*) role=muted; message=${message#debug: } ;; *failed*|*unavailable*|*remain*|*missing*) role=warning ;; esac
+    ui_message 2 "$role" "$message"
+  else printf '%s: %s\n' "$PROGRAM" "$*" >&2; fi
+}
+human() { if ui_pretty 1; then ui_message 1 "$1" "$2"; else say "$2"; fi; }
+report() {
+  if [[ $banner == always ]]; then header; fi
+  ui_section 1 "$1"
+}
 die() { note "error: $*"; exit 1; }
 usage_error() { note "error: $*"; exit 2; }
 trace() { if ((debug)); then note "debug: $*"; fi; }
@@ -47,13 +60,14 @@ configure() {
       [[ -z ${seen[$key]+yes} ]] || die 'duplicate configuration key'
       seen[$key]=1
       case $key in
-        color|banner|auto_update|update_interval|proxy_connect_timeout|proxy_allow|codex_bin|auth_notice|auth_log|connect_backend|runit_port) printf -v "$key" '%s' "$value" ;;
+        color|banner|output|auto_update|update_interval|proxy_connect_timeout|proxy_allow|codex_bin|auth_notice|auth_log|connect_backend|runit_port) printf -v "$key" '%s' "$value" ;;
         ca_bundle) configured_ca=$value ;;
         *) die 'unknown configuration key' ;;
       esac
     done <"$config_file"
   fi
   color=${CODEX_TERMUX_COLOR-$color}; banner=${CODEX_TERMUX_BANNER-$banner}
+  output=${CODEX_TERMUX_OUTPUT-$output}
   auto_update=${CODEX_TERMUX_AUTO_UPDATE-$auto_update}
   update_interval=${CODEX_TERMUX_UPDATE_INTERVAL-$update_interval}
   proxy_connect_timeout=${CODEX_TERMUX_PROXY_CONNECT_TIMEOUT-$proxy_connect_timeout}
@@ -69,12 +83,18 @@ configure() {
   local i=0
   while ((i < ${#prefix_args[@]})); do
     key=${prefix_args[i]}; value=${prefix_args[i+1]}; i=$((i+2))
-    case $key in color) color=$value ;; banner) banner=$value ;; esac
+    case $key in color) color=$value ;; banner) banner=$value ;; output) output=$value ;; esac
   done
+  case $output in auto|pretty|raw) ;; *) usage_error 'output must be auto, pretty, or raw' ;; esac
+  ui_output=$output; ui_color=$color
   case $color in auto|always|never) ;; *) usage_error 'color must be auto, always, or never' ;; esac
   case $banner in auto|always|never) ;; *) usage_error 'banner must be auto, always, or never' ;; esac
   case $auto_update in ask|notify|off) ;; *) die 'auto_update must be ask, notify, or off' ;; esac
-  case $connect_backend in managed|runit) ;; *) die 'connect_backend must be managed or runit' ;; esac
+  # Server/connect parse their command override after configuration. Validate
+  # the effective backend there so an explicit option can replace an env value.
+  if [[ ${1:-} != connect && ! ( ${1:-} == manage && ${2:-} == server ) ]]; then
+    case $connect_backend in managed|runit) ;; *) die 'connect_backend must be managed or runit' ;; esac
+  fi
   [[ $runit_port =~ ^[0-9]{1,5}$ ]] && ((10#$runit_port > 0 && 10#$runit_port <= 65535)) || die 'runit_port must be 1..65535'
   runit_port=$((10#$runit_port))
   case $auth_notice in auto|off) ;; *) die 'auth_notice must be auto or off' ;; esac
@@ -89,7 +109,7 @@ configure() {
   done
   [[ $auth_log == /* && $auth_log != / ]] && ! has_control "$auth_log" || die 'auth_log must be an absolute literal path'
   ((no_update)) && auto_update=off
-  if [[ $color == always || ( $color == auto && -t 1 && -z ${NO_COLOR+x} && ${TERM:-dumb} != dumb ) ]]; then
+  if ui_colored 1; then
     reset=$'\e[0m'; bold=$'\e[1m'; accent=$'\e[1;36m'; muted=$'\e[2m'
     command_color=$'\e[1;32m'; option_color=$'\e[1;33m'
     description_color=$'\e[37m'; heading_color=$'\e[1;35m'
@@ -97,6 +117,7 @@ configure() {
 }
 
 header() {
+  [[ $output != raw ]] || return 0
   [[ $banner == never ]] && return 0
   [[ $banner == always || -t 1 ]] || return 0
   local width=${COLUMNS:-0} row
@@ -130,7 +151,7 @@ usage() {
   printf '\n%sCommands%s\n' "$heading_color" "$reset"
   help_row "$command_color" run 'Launch Codex (default).'
   help_row "$command_color" chatgpt 'Launch without API-key variables.'
-  help_row "$command_color" 'connect [--chatgpt] [--] ...' 'Attach using the configured server backend.'
+  help_row "$command_color" 'connect [--chatgpt] [--] ...' 'Attach; --backend runit|managed overrides config.'
   help_row "$command_color" login 'ChatGPT device login by default.'
   help_row "$command_color" login-api 'Use OPENAI_API_KEY on stdin.'
   help_row "$command_color" status 'Show Codex authentication status.'
@@ -147,6 +168,7 @@ usage() {
   help_row "$option_color" '--wrapper-dry-run' 'Describe run/chatgpt; launch nothing.'
   help_row "$option_color" '--wrapper-no-update' 'Disable automatic npm checks/prompts.'
   help_row "$option_color" '--wrapper-color MODE' 'auto | always | never'
+  help_row "$option_color" '--wrapper-output MODE' 'auto | pretty | raw (human reports).'
   help_row "$option_color" '--wrapper-banner MODE' 'auto | always | never'
   help_row "$option_color" '--wrapper-config PATH' 'Literal key=value configuration.'
   help_row "$option_color" '--wrapper-no-config' 'Ignore the configuration file.'
@@ -157,10 +179,11 @@ usage() {
   help_row "$command_color" 'manage update [--check]' 'Update the Codex npm runtime.'
   help_row "$option_color" '  --check [--json]' 'Check npm updates without installing.'
   help_row "$option_color" '  [--yes] [--version X.Y.Z]' 'Authorize/pin npm installation.'
-  help_row "$command_color" 'manage server start' 'Detach server and proxy (opt-in).'
-  help_row "$option_color" '  --auth inherited|chatgpt' 'Required start-time authentication mode.'
-  help_row "$option_color" '  [--port N]' 'Loopback port; default temporary port.'
-  help_row "$command_color" 'manage server status|stop' 'Verify ownership and inspect/stop.'
+  help_row "$command_color" 'manage server COMMAND' 'Control codex-remote through Termux sv.'
+  help_row "$command_color" '  start|stop|restart|status' 'Lifecycle and native runit status.'
+  help_row "$command_color" '  enable|disable|is-enabled' 'Control or inspect service autostart.'
+  help_row "$command_color" '  logs|check|help' 'Existing logs, authenticated check, or details.'
+  help_row "$option_color" '  --backend runit|managed' 'Override configured backend (default runit).'
   help_row "$command_color" 'manage rollback' 'Restore the previous npm runtime.'
   help_row "$command_color" 'manage self-update [--check]' 'Update this wrapper package.'
   help_row "$command_color" 'manage uninstall [--dry-run]' 'Remove wrapper package files.'
@@ -233,8 +256,9 @@ require_runtime() {
 }
 runtime() {
   local -a runner=()
+  ui_size 1
   [[ $1 == proxy ]] && runner=(exec)
-  NODE_OPTIONS='' NODE_PATH='' "${runner[@]}" "$node_bin" - "$@" <<'CODEX_TERMUX_NODE'
+  CODEX_TERMUX_UI_OUTPUT=$output CODEX_TERMUX_UI_COLOR=$color CODEX_TERMUX_UI_COLUMNS=${COLUMNS:-$ui_width} NODE_OPTIONS='' NODE_PATH='' "${runner[@]}" "$node_bin" - "$@" <<'CODEX_TERMUX_NODE'
 @@RUNTIME@@
 CODEX_TERMUX_NODE
 }
@@ -259,9 +283,10 @@ auto_update=ask
 update_interval=86400
 color=auto
 banner=auto
+output=auto
 proxy_connect_timeout=10000
 auth_notice=auto
-connect_backend=managed
+connect_backend=runit
 runit_port=4511
 # auth_log=/absolute/path/to/codex-tui.log
 # proxy_allow=example.com
@@ -272,7 +297,7 @@ CODEX_TERMUX_CONFIG
 confirm() {
   local answer
   [[ -t 0 && -t 2 ]] || die 'confirmation requires a terminal; inspect the action and pass --yes to authorize it'
-  printf '%s [y/N] ' "$1" >&2
+  if ui_pretty 2; then ui_escape "$1"; ui_span 2 warning "$UI_TEXT [y/N] "; else printf '%s [y/N] ' "$1" >&2; fi
   IFS= read -r answer || return 1
   [[ $answer == y || $answer == Y || $answer == yes || $answer == YES ]]
 }
@@ -296,6 +321,20 @@ info() {
     printf '{"schema_version":1,"wrapper_version":"%s","node":"%s","codex":"%s","codex_version":' "$WRAPPER_VERSION" "$node_status" "$codex_status"
     if [[ -n $installed_version ]]; then printf '"%s"' "$installed_version"; else printf null; fi
     printf ',"runtime":"%s","ca_bundle":"%s","auto_update":"%s"}\n' "${codex_kind:-none}" "$ca_status" "$auto_update"
+  elif ui_pretty 1; then
+    report 'Runtime and prerequisites'
+    ui_field 1 Wrapper "$WRAPPER_VERSION"
+    local role=success
+    [[ $node_status == present ]] || role=error
+    ui_field 1 Node "$node_status" "$role"
+    role=success; [[ $codex_status == working ]] || role=error
+    ui_field 1 Codex "$codex_status ${installed_version:-}" "$role"
+    ui_field 1 Runtime "${codex_kind:-none}"
+    role=success; [[ $ca_status == present ]] || role=error
+    ui_field 1 'CA bundle' "$ca_status" "$role"
+    ui_field 1 'Automatic updates' "$auto_update"
+    ui_field 1 'Check interval' "$update_interval seconds"
+    human info 'Updates require confirmation. Sandbox/approval settings are passed through.'
   else
     header
     say "Wrapper: $WRAPPER_VERSION"
@@ -309,7 +348,7 @@ info() {
 maintenance() {
   local action=${1:-help} requested=latest yes=0 check=0 json=0 option
   (($#)) && shift
-  if [[ $action != self-update && $action != uninstall && $# == 1 && ( $1 == --help || $1 == -h ) ]]; then usage; return; fi
+  if [[ $action != self-update && $action != uninstall && $action != server && $# == 1 && ( $1 == --help || $1 == -h ) ]]; then usage; return; fi
   case $action in
     help|-h|--help) (($# == 0)) || usage_error 'unexpected maintenance arguments'; usage; return ;;
     config)
@@ -317,7 +356,19 @@ maintenance() {
       case ${1:-show} in
         example) config_example ;;
         show)
+          if ui_pretty 1; then
+            report 'Effective wrapper configuration'
+            ui_field 1 'Automatic updates' "$auto_update"
+            ui_field 1 'Check interval' "$update_interval seconds"
+            ui_field 1 Color "$color"; ui_field 1 Banner "$banner"; ui_field 1 Output "$output"
+            ui_field 1 'Proxy timeout' "$proxy_connect_timeout milliseconds"
+            ui_field 1 'Server backend' "$connect_backend"; ui_field 1 'Runit port' "$runit_port"
+            ui_field 1 'Authentication notices' "$auth_notice"
+            human info 'Overrides: paths and additional hosts are omitted from this summary.'
+            return
+          fi
           printf 'auto_update=%s\nupdate_interval=%s\ncolor=%s\nbanner=%s\nproxy_connect_timeout=%s\n' "$auto_update" "$update_interval" "$color" "$banner" "$proxy_connect_timeout"
+          printf 'output=%s\n' "$output"
           printf 'connect_backend=%s\nrunit_port=%s\n' "$connect_backend" "$runit_port"
           printf 'auth_notice=%s\n' "$auth_notice"
           say '# Overrides: paths and additional hosts are omitted from this summary.' ;;
@@ -332,7 +383,7 @@ maintenance() {
       require_termux
       resolve_node || die "Node.js is required; run: $PROGRAM setup"
       runtime auth-check "$auth_log" "${1:+json}"; return ;;
-    server) managed_server "$@"; return ;;
+    server) manage_server "$@"; return ;;
     self-update|uninstall)
       package_tool "$action" "$@"; return ;;
     update|rollback) ;;
@@ -367,9 +418,12 @@ maintenance() {
     if ((json)); then runtime check-update "$cache_dir" "$arch" json "$installed_version"
     else
       latest=$(runtime check-update "$cache_dir" "$arch" text "$installed_version")
-      say "Installed: ${installed_version:-unknown} | Latest: $latest"
-      if [[ $installed_version == "$latest" ]]; then say 'Codex is up to date.'
-      else say "To install: $PROGRAM manage update"; fi
+      if ui_pretty 1; then
+        report 'Codex runtime update'
+        ui_field 1 Installed "${installed_version:-unknown}"; ui_field 1 Latest "$latest"
+      else say "Installed: ${installed_version:-unknown} | Latest: $latest"; fi
+      if [[ $installed_version == "$latest" ]]; then human success 'Codex is up to date.'
+      else human info "To install: $PROGRAM manage update"; fi
     fi
     return
   fi
@@ -383,13 +437,201 @@ maintenance() {
   if [[ $requested == latest ]]; then
     requested=$(runtime check-update "$cache_dir" "$arch" text '')
   fi
-  if resolve_codex && probe_version && [[ $installed_version == "$requested" ]]; then say "Codex $requested is already active."; return; fi
+  if resolve_codex && probe_version && [[ $installed_version == "$requested" ]]; then human success "Codex $requested is already active."; return; fi
   ((yes)) || confirm "Install and validate Codex $requested in a separate runtime?" || { note 'unchanged'; return 0; }
   note "staging Codex $requested; the current runtime stays available"
   runtime install "$data_dir" "$arch" "$requested" "$npm_bin"
 }
-# Server helpers never use start_proxy or update discovery. The supervisor owns
-# its proxy independently; connecting keeps the existing foreground wait loop.
+# Server management never uses update discovery or the foreground proxy.
+server_usage() {
+  header
+  printf '%sUsage%s\n' "$heading_color" "$reset"
+  printf '  %s%s manage server%s %sCOMMAND [OPTIONS]%s\n' "$command_color" "$PROGRAM" "$reset" "$option_color" "$reset"
+  printf '\n%sRunit commands%s (codex-remote)\n' "$heading_color" "$reset"
+  help_row "$command_color" start 'Start and wait for the requested service state.'
+  help_row "$command_color" stop 'Stop and wait for completion.'
+  help_row "$command_color" restart 'Restart through runit and wait.'
+  help_row "$command_color" status 'Service state and sv exit status; raw output available.'
+  help_row "$command_color" enable 'Enable autostart, then start.'
+  help_row "$command_color" disable 'Disable autostart, then stop.'
+  help_row "$command_color" is-enabled 'Print enabled (exit 0) or disabled (exit 1).'
+  help_row "$command_color" logs 'Show existing service logs; default 100 lines.'
+  help_row "$command_color" check 'Verify runit status and authenticated WebSockets.'
+  help_row "$command_color" help 'Show this help without starting Node.'
+  printf '\n%sOptions%s\n' "$heading_color" "$reset"
+  help_row "$option_color" '--backend runit|managed' 'Override environment/config; default runit.'
+  help_row "$option_color" '-w, --wait N' 'Lifecycle wait: 1..300 seconds, default 20.'
+  help_row "$option_color" '-n, --lines N' 'logs only: 1..10000 lines.'
+  help_row "$option_color" '-f, --follow' 'logs only: follow rotation; Ctrl+C exits.'
+  help_row "$option_color" '-h, --help' 'Show this help.'
+  printf '\n%sLegacy managed backend%s\n' "$heading_color" "$reset"
+  help_row "$command_color" 'start --backend managed' 'Detach the legacy supervisor and proxy.'
+  help_row "$option_color" '  --auth inherited|chatgpt' 'Required start-time authentication mode.'
+  help_row "$option_color" '  [--port N]' 'Loopback port; default temporary port.'
+  help_row "$command_color" 'status --backend managed' 'Verify ownership and authenticated connectivity.'
+  help_row "$command_color" 'stop --backend managed' 'Stop the owned legacy server and proxy.'
+  printf '\n%sNotes%s\n' "$heading_color" "$reset"
+  emit <<'CODEX_TERMUX_SERVER_HELP'
+  Service: ${SVDIR:-$PREFIX/var/service}/codex-remote
+  Log: $HOME/.local/share/codex-remote/log/current
+  start/stop/restart leave autostart unchanged. enable/disable persist their
+  autostart setting even if the subsequent lifecycle command fails.
+  status can succeed for a stopped service; check tests endpoint authentication,
+  not account health. No service installation, global daemon start, or fallback.
+  Runit uses the service's existing auth/port settings, not --auth or --port.
+CODEX_TERMUX_SERVER_HELP
+}
+manage_server() {
+  local operation=${1:-help} backend=$connect_backend option backend_seen=0
+  local -a options=()
+  (($#)) && shift
+  case $operation in
+    help|-h|--help) (($# == 0)) || usage_error 'unexpected server help arguments'; server_usage; return ;;
+    start|stop|restart|status|enable|disable|is-enabled|logs|check) ;;
+    *) usage_error 'unknown server command; use manage server help' ;;
+  esac
+  while (($#)); do
+    option=$1; shift
+    case $option in
+      -h|--help) server_usage; return ;;
+      --backend)
+        (( ! backend_seen )) || usage_error 'repeated --backend option'
+        (($#)) || usage_error '--backend requires runit or managed'
+        backend=$1; backend_seen=1; shift ;;
+      --auth|--port|--wait|-w|--lines|-n)
+        (($#)) || usage_error "$option requires a value"
+        options+=("$option" "$1"); shift ;;
+      --follow|-f) options+=("$option") ;;
+      *) usage_error 'unsupported server option; use manage server help' ;;
+    esac
+  done
+  case $backend in
+    runit) runit_server "$operation" "${options[@]}" ;;
+    managed)
+      case $operation in
+        start|status|stop) managed_server "$operation" "${options[@]}" ;;
+        *) usage_error 'managed backend supports only start, status, and stop; use --backend runit for service commands' ;;
+      esac ;;
+    *) usage_error '--backend requires runit or managed' ;;
+  esac
+}
+runit_server() {
+  local operation=$1 option wait_seconds=20 lines=100 follow=0
+  local service_root service marker sv_bin result setting
+  local -A seen=()
+  shift
+  while (($#)); do
+    option=$1; shift
+    case $option in -w) option=--wait ;; -n) option=--lines ;; -f) option=--follow ;; esac
+    [[ -z ${seen[$option]+yes} ]] || usage_error 'repeated server option'
+    seen[$option]=1
+    case $option in
+      --wait)
+        case $operation in start|stop|restart|enable|disable) ;; *) usage_error '--wait is only for lifecycle commands' ;; esac
+        wait_seconds=$1; shift
+        [[ $wait_seconds =~ ^[0-9]{1,3}$ ]] && ((10#$wait_seconds >= 1 && 10#$wait_seconds <= 300)) || usage_error '--wait must be 1..300 seconds'
+        wait_seconds=$((10#$wait_seconds)) ;;
+      --lines)
+        [[ $operation == logs ]] || usage_error '--lines is only for logs'
+        lines=$1; shift
+        [[ $lines =~ ^[0-9]{1,5}$ ]] && ((10#$lines >= 1 && 10#$lines <= 10000)) || usage_error '--lines must be 1..10000'
+        lines=$((10#$lines)) ;;
+      --follow) [[ $operation == logs ]] || usage_error '--follow is only for logs'; follow=1 ;;
+      --auth|--port) usage_error 'runit uses service auth/port settings; legacy start options require --backend managed' ;;
+    esac
+  done
+  require_termux
+  service_root=${SVDIR:-$PREFIX/var/service}
+  [[ $service_root == /* ]] && ! has_control "$service_root" || die 'SVDIR must be an absolute path without control characters'
+  service=$service_root/codex-remote
+  [[ -d $service && ! -L $service && -O $service ]] || die 'codex-remote service directory is missing or unsafe; install the service separately under SVDIR'
+  # Resolve a physical directory and pass an absolute target to sv.
+  service=$(cd -P -- "$service" && pwd -P) || die 'cannot resolve service directory'
+  marker=$service/down
+  case $operation in
+    enable|disable|is-enabled)
+      if [[ -e $marker || -L $marker ]]; then
+        [[ -f $marker && ! -L $marker && -O $marker ]] || die 'unsafe service down marker; inspect it manually'
+      fi ;;
+  esac
+  if [[ $operation == is-enabled ]]; then
+    if ui_pretty 1; then
+      report 'Service autostart'
+      ui_field 1 Service codex-remote
+      if [[ -e $marker ]]; then ui_field 1 Autostart Disabled warning; return 1; fi
+      ui_field 1 Autostart Enabled success; return
+    fi
+    if [[ -e $marker ]]; then say disabled; return 1; fi
+    say enabled; return
+  fi
+  if [[ $operation == logs ]]; then
+    local log_dir=$HOME/.local/share/codex-remote/log
+    [[ -d $log_dir && ! -L $log_dir && -O $log_dir && -f $log_dir/current && ! -L $log_dir/current && -O $log_dir/current ]] || die 'service log is missing or unsafe: expected ~/.local/share/codex-remote/log/current'
+    local -a tail_options=(-n "$lines")
+    (( ! follow )) || tail_options+=(-F)
+    if ui_pretty 1 || ui_pretty 2; then
+      if ui_pretty 1; then
+        report 'Service logs'
+        ui_field 1 Service codex-remote
+        ui_field 1 File "$log_dir/current"
+        ui_field 1 Lines "$lines"
+        (( ! follow )) || ui_field 1 Following 'Rotation enabled; Ctrl+C exits' info
+        printf '\n'
+      fi
+      ui_run_stream logs tail "${tail_options[@]}" -- "$log_dir/current"
+      return
+    fi
+    exec tail "${tail_options[@]}" -- "$log_dir/current"
+  fi
+  sv_bin=$(type -P sv || true)
+  [[ -n $sv_bin ]] || die 'sv is unavailable; install termux-services explicitly with pkg install termux-services'
+  case $operation in
+    status) service_command status "$sv_bin" status "$service" ;;
+    check)
+      service_command check "$sv_bin" status "$service" || return $?
+      resolve_node || die 'Node.js is required for the authenticated connection check'
+      runtime runit-check "$HOME/.local/share/codex-remote" "$runit_port" ;;
+    start|stop|restart) service_command "$operation" "$sv_bin" -w "$wait_seconds" "$operation" "$service" ;;
+    enable|disable)
+      if [[ $operation == enable ]]; then
+        rm -f -- "$marker" || die 'cannot enable service autostart'
+        operation=start; setting=enabled
+      else
+        if [[ ! -e $marker ]]; then
+          (umask 077; set -C; : > "$marker") || die 'cannot create service down marker; autostart state needs review'
+        fi
+        operation=stop; setting=disabled
+      fi
+      if service_command "$operation" "$sv_bin" -w "$wait_seconds" "$operation" "$service"; then return 0
+      else
+        result=$?
+        note "autostart remains $setting; service $operation failed (exit $result)"
+        return "$result"
+      fi ;;
+  esac
+}
+service_command() {
+  local action=$1 result=0 setting=Enabled role=success
+  shift
+  if ! ui_pretty 1 && ! ui_pretty 2; then "$@"; return; fi
+  if ui_pretty 1; then
+    report "Service $action"
+    ui_field 1 Service codex-remote; ui_field 1 Backend runit
+    ui_field 1 Directory "$service"
+    if [[ -L $marker || ( -e $marker && ( ! -f $marker || ! -O $marker ) ) ]]; then setting=Unknown; role=warning
+    elif [[ -e $marker ]]; then setting=Disabled; role=warning; fi
+    ui_field 1 Autostart "$setting" "$role"
+  fi
+  ui_run_stream sv "$@" || result=$?
+  if ui_pretty 1; then
+    if ((result)); then ui_field 1 Result "Failed (exit $result)" error
+    elif [[ $action == check ]]; then ui_field 1 'Status command' 'Completed; endpoint check follows' info
+    else ui_field 1 Result 'Command completed' success; fi
+  fi
+  return "$result"
+}
+# The legacy supervisor owns its proxy independently; connecting keeps the
+# existing foreground wait loop.
 server_operation() {
   runtime server "$1" "$data_dir" "$(readlink -f -- "${BASH_SOURCE[0]}")" "$installed_version" "$2" "$3" \
     "$proxy_allow" "$proxy_connect_timeout" "$ca_bundle" "${codex_command[@]}"
@@ -427,9 +669,23 @@ managed_server() {
   server_operation "$operation" "$auth" "$port"
 }
 connect_server() {
-  local auth=inherited output url token_file status=0 arg has_cd=0
+  local auth=inherited connection_output url token_file status=0 arg has_cd=0 backend=$connect_backend
+  local -A seen=()
   local -a cwd_args=()
-  if [[ ${1:-} == --chatgpt ]]; then auth=chatgpt; shift; fi
+  while (($#)); do
+    case $1 in
+      --chatgpt|--backend)
+        [[ -z ${seen[$1]+yes} ]] || usage_error 'repeated connect option'
+        seen[$1]=1
+        if [[ $1 == --chatgpt ]]; then auth=chatgpt; shift
+        else
+          (($# >= 2)) || usage_error '--backend requires runit or managed'
+          backend=$2; shift 2
+        fi ;;
+      *) break ;;
+    esac
+  done
+  case $backend in runit|managed) ;; *) usage_error '--backend requires runit or managed' ;; esac
   [[ ${1:-} != -- ]] || shift
   for arg in "$@"; do
     case $arg in
@@ -444,7 +700,7 @@ connect_server() {
   require_runtime
   probe_version || die 'selected runtime validation failed; use run --no-daemon'
   local CODEX_TERMUX_SERVER_TOKEN
-  if [[ $connect_backend == runit ]]; then
+  if [[ $backend == runit ]]; then
     [[ $auth == chatgpt ]] || usage_error 'runit connections require connect --chatgpt'
     # Fixed private token location matches the separately installed service.
     # The helper validates an opened file and both authenticated/unauthenticated
@@ -452,9 +708,9 @@ connect_server() {
     CODEX_TERMUX_SERVER_TOKEN=$(runtime runit-connect "$HOME/.local/share/codex-remote" "$runit_port") || return $?
     url="ws://127.0.0.1:$runit_port"
   else
-    output=$(server_operation connect "$auth" 0) || return $?
-    IFS=$'\n' read -r url <<<"$output"
-    token_file=${output#*$'\n'}
+    connection_output=$(server_operation connect "$auth" 0) || return $?
+    IFS=$'\n' read -r url <<<"$connection_output"
+    token_file=${connection_output#*$'\n'}
     [[ $url =~ ^ws://127\.0\.0\.1:[0-9]+$ && $token_file == /* ]] || die 'invalid server connection response'
     IFS= read -r CODEX_TERMUX_SERVER_TOKEN <"$token_file" || die 'managed server token unavailable'
   fi
@@ -472,10 +728,14 @@ connect_server() {
   return "$status"
 }
 package_tool() {
-  local operation=$1 helper own folder arg force_remote=1 explicit_color=0
+  local operation=$1 helper own folder arg force_remote=1 explicit_color=0 explicit_output=0
   shift
-  for arg in "$@"; do [[ $arg != --color ]] || explicit_color=1; done
+  for arg in "$@"; do
+    [[ $arg != --color ]] || explicit_color=1
+    [[ $arg != --output ]] || explicit_output=1
+  done
   ((explicit_color)) || set -- --color "$color" "$@"
+  ((explicit_output)) || set -- --output "$output" "$@"
   own=$(readlink -f -- "${BASH_SOURCE[0]}") || die 'cannot locate the wrapper package helper'
   folder=${own%/*}
   if [[ $operation == uninstall ]]; then helper=uninstall.sh; else helper=install.sh; fi
@@ -516,7 +776,7 @@ setup() {
     resolve_node || die 'Node.js is required with an override; install it explicitly or remove the override'
     resolve_codex && probe_version || die 'the explicit Codex override failed its version check; no packages changed'
     find_ca_bundle || die 'a working CA bundle is required; no packages changed'
-    say "Override validated: Codex $installed_version. Nothing installed."; return
+    human success "Override validated: Codex $installed_version. Nothing installed."; return
   fi
   command -v node >/dev/null 2>&1 || packages+=(nodejs)
   command -v npm >/dev/null 2>&1 || packages+=(npm)
@@ -537,16 +797,16 @@ setup() {
   find_ca_bundle || die 'the CA bundle is still unavailable'
   npm_bin=$(type -P npm || true); [[ -n $npm_bin ]] || die 'npm is still unavailable'
   if [[ -z $requested ]] && resolve_codex && probe_version; then
-    say "Setup checked: Codex $installed_version is working. Nothing reinstalled."
+    human success "Setup checked: Codex $installed_version is working. Nothing reinstalled."
   else
     local -a args=(update)
     [[ -z $requested ]] || args+=(--version "$requested")
     (( ! yes )) || args+=(--yes)
     maintenance "${args[@]}"
     resolve_codex && probe_version || die 'setup did not produce a working Codex runtime'
-    say "Setup checked: Codex $installed_version is working."
+    human success "Setup checked: Codex $installed_version is working."
   fi
-  say "Next: $PROGRAM test, then $PROGRAM login, then $PROGRAM chatgpt"
+  human info "Next: $PROGRAM test, then $PROGRAM login, then $PROGRAM chatgpt"
 }
 
 cleanup() {
@@ -681,12 +941,12 @@ consider_update() {
 }
 test_connection() {
   note 'testing Android DNS through native Node.js'
-  "$node_bin" -e 'const t=setTimeout(()=>{console.error("DNS timed out");process.exit(1)},10000); require("node:dns").lookup("auth.openai.com",(e,a,f)=>{clearTimeout(t);if(e){console.error("DNS failed");process.exitCode=1}else console.log(`DNS OK (IPv${f})`)});'
+  runtime dns-test
   command -v curl >/dev/null 2>&1 || die "curl is required; run: $PROGRAM setup"
   local code
   code=$(curl --proxy "$proxy_url" --noproxy '' --cacert "$ca_bundle" --connect-timeout 10 --max-time 20 --silent --show-error --output /dev/null --write-out '%{http_code}' https://auth.openai.com/) || die 'HTTPS transport test failed'
   [[ $code =~ ^[1-5][0-9][0-9]$ ]] || die 'no HTTP response'
-  say "HTTPS transport reachable: HTTP $code (not proof of successful login)."
+  human success "HTTPS transport reachable: HTTP $code (not proof of successful login)."
   run_codex normal doctor --summary
 }
 main() {
@@ -696,7 +956,11 @@ main() {
       --wrapper-version) (($# == 1)) || usage_error '--wrapper-version accepts no arguments'; say "codex-termux $WRAPPER_VERSION"; return ;;
       --wrapper-no-config) config_disabled=1; shift ;;
       --wrapper-config) (($# >= 2)) && [[ -n $2 ]] || usage_error '--wrapper-config requires a path'; config_file=$2; config_explicit=1; shift 2 ;;
-      --wrapper-color|--wrapper-banner) (($# >= 2)) || usage_error 'wrapper style option requires a mode'; prefix_args+=("${1#--wrapper-}" "$2"); shift 2 ;;
+      --wrapper-color|--wrapper-banner|--wrapper-output)
+        (($# >= 2)) || usage_error 'wrapper style option requires a mode'
+        prefix_args+=("${1#--wrapper-}" "$2")
+        case $1 in --wrapper-output) ui_output=$2 ;; --wrapper-color) ui_color=$2 ;; esac
+        shift 2 ;;
       --wrapper-no-update) no_update=1; shift ;;
       --wrapper-debug) debug=1; shift ;;
       --wrapper-dry-run) dry=1; shift ;;
@@ -704,7 +968,7 @@ main() {
       *) break ;;
     esac
   done
-  configure
+  configure "$@"
   if [[ $mode == info ]]; then
     (( ! dry )) || usage_error 'dry-run supports run or chatgpt only'
     (($# == 0)) || [[ $# == 1 && $1 == --json ]] || usage_error '--wrapper-info accepts only --json'
@@ -729,6 +993,14 @@ main() {
   (( ! dry )) || { [[ $action == run || $action == chatgpt ]] || usage_error 'dry-run supports run or chatgpt only'; }
   require_runtime
   if ((dry)); then
+    if ui_pretty 1; then
+      report 'Launch preview'
+      ui_field 1 Mode "$action"; ui_field 1 Runtime "$codex_kind"
+      ui_field 1 'Forwarded argument count' "$#"
+      ui_field 1 Proxy 'Per-launch loopback CONNECT'
+      human info 'Argument values omitted. No launch, update check, temporary directory, or network request performed.'
+      return
+    fi
     say "Mode: $action | Runtime: $codex_kind | Forwarded argument count: $#"
     say 'Proxy: per-launch loopback CONNECT | Argument values omitted'
     say 'No launch, update check, temporary directory, or network request performed.'

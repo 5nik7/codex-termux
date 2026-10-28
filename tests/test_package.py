@@ -4,6 +4,7 @@ import hashlib
 import os
 from pathlib import Path
 import pty
+import re
 import select
 import shutil
 import signal
@@ -353,6 +354,53 @@ shutil.copyfile(Path({str(assets)!r})/url.rsplit('/',1)[1],destination)
         result = subprocess.run([*command, '--color', 'never', '--help'], env=self.env, capture_output=True, text=True, timeout=5)
         self.assertEqual(result.returncode, 0, result.stderr); self.assertNotIn('\x1b', result.stdout)
         self.assertFalse((self.home / 'forbidden').exists())
+
+    def test_package_help_semantic_colors_and_plain_output(self):
+        for uninstall, label in [(False, 'Install/update'), (True, 'Uninstall')]:
+            plain = self.run_tool('--help', uninstall=uninstall)
+            self.assertEqual(plain.returncode, 0, plain.stderr)
+            self.assertNotIn('\x1b', plain.stdout)
+            for mode, extra, colored in [('always', {}, True), ('never', {}, False),
+                                         ('auto', {'NO_COLOR': '1'}, False),
+                                         ('auto', {'TERM': 'dumb'}, False),
+                                         ('always', {'NO_COLOR': '1', 'TERM': 'dumb'}, True)]:
+                result = self.run_tool('--color', mode, '--help', uninstall=uninstall, env={**self.env, **extra})
+                self.assertEqual(result.returncode, 0, result.stderr)
+                self.assertEqual('\x1b[' in result.stdout, colored)
+                self.assertEqual(re.sub(r'\x1b\[[0-9;]*m', '', result.stdout), plain.stdout)
+                if colored:
+                    self.assertIn('\x1b[1;36m< codex (termux) >\x1b[0m', result.stdout)
+                    self.assertIn('\x1b[1;35mWrapper package manager '+VERSION+'\x1b[0m', result.stdout)
+                    for style, token in [('1;32', label), ('1;33', '--color MODE')]:
+                        self.assertRegex(result.stdout, '  '+re.escape('\x1b['+style+'m'+token.ljust(27)+'\x1b[0m \x1b[37m')+r'[^\n]+\x1b\[0m\n')
+            script = ROOT / ('uninstall.sh' if uninstall else 'install.sh')
+            piped = subprocess.run([BASH, '-s', '--', '--color', 'never', '--help'], input=script.read_text(),
+                                   env=self.env, text=True, capture_output=True, timeout=5)
+            self.assertEqual(piped.returncode, 0, piped.stderr)
+            self.assertEqual(piped.stdout, plain.stdout)
+        self.assertFalse((self.home / 'forbidden').exists())
+        self.assertEqual(list(self.prefix.iterdir()), [])
+
+    def test_output_modes_previews_and_wrapper_inheritance(self):
+        pretty=self.run_tool('--source',str(self.sources[VERSION]),'--dry-run','--output','pretty','--color','always')
+        self.assertEqual(pretty.returncode,0,pretty.stderr)
+        self.assertIn('\x1b[1;35mInstall / update wrapper package\x1b[0m',pretty.stdout)
+        self.assertIn('\x1b[1;36mInstalled',pretty.stdout)
+        self.assertEqual(list(self.prefix.iterdir()),[])
+        for args in [('--wrapper-output','raw','--wrapper-color','always','manage','self-update','--help'),
+                     ('--wrapper-output','pretty','manage','self-update','--output','raw','--help')]:
+            result=subprocess.run([BASH,str(ROOT/'bin/codex-termux'),*args],env=self.env,text=True,capture_output=True,timeout=5)
+            self.assertEqual(result.returncode,0,result.stderr)
+            self.assertNotIn('\x1b',result.stdout)
+            self.assertNotIn('< codex (termux) >',result.stdout)
+        result=self.run_tool('--output','invalid','--help')
+        self.assertEqual(result.returncode,2)
+        for name in ['install.sh','uninstall.sh']:
+            result=subprocess.run([BASH,'-s','--','--output','raw','--color','always','--help'],
+                input=(ROOT/name).read_text(),env=self.env,text=True,capture_output=True,timeout=5)
+            self.assertEqual(result.returncode,0,result.stderr)
+            self.assertNotIn('\x1b',result.stdout)
+        self.assertFalse((self.home/'forbidden').exists())
 
     def test_piped_script_uses_controlling_terminal_for_decline_and_accept(self):
         self.install()

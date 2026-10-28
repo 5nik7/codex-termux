@@ -1,4 +1,4 @@
-.TH CODEX-TERMUX 1 "2026-09-19" "codex-termux 0.4.1" "User Commands"
+.TH CODEX-TERMUX 1 "2026-10-28" "codex-termux 0.4.2" "User Commands"
 .SH NAME
 codex-termux \- run and maintain Codex in native Android Termux
 .SH SYNOPSIS
@@ -78,28 +78,89 @@ Validate and select the previous Codex npm runtime.
 Check or update this wrapper package, including Bash/Zsh completions and
 the manual. This is separate from manage update.
 .TP
-.B manage uninstall [\-\-dry-run] [\-\-yes] [\-\-prefix DIR] [\-\-color MODE]
+.B manage uninstall [\-\-dry-run] [\-\-yes] [\-\-prefix DIR] [\-\-color MODE] [\-\-output MODE]
 Remove verified package-managed public entries after confirmation.
 Preserve Codex runtimes, authentication, configuration, shell startup,
 recovery backups, and private package history.
 .TP
 .B manage config show|example
 Print effective nonsecret settings or a literal configuration template.
-.SH MANAGED APP SERVER
-.B manage server start --auth inherited|chatgpt [--port N]
+.SH TERMUX SERVICE MANAGEMENT
+Runit is the default backend for both manage server and connect.
+Existing explicit connect_backend=managed configuration remains honored.
+The precedence is command --backend, CODEX_TERMUX_CONNECT_BACKEND, literal
+connect_backend configuration, then the runit default. No fallback is attempted.
+.PP
+.B manage server start|stop|restart [--wait N] [--backend runit|managed]
+uses sv -w N with the matching action. The wait defaults to 20 seconds;
+--wait/-w accepts 1 through 300. Native exit status and raw output are preserved;
+timeouts do not trigger forced termination. Autostart is unchanged.
+A rapid restart can return before a subsequent status observes the replacement.
+.PP
+.B manage server status
+runs sv status, with readable terminal fields or native raw output.
+Success can describe a stopped service.
+.PP
+.B manage server enable|disable [--wait N]
+removes or creates the service down marker, then starts or stops the service.
+This matches the Termux sv-enable/sv-disable convention with bounded waits.
+The autostart setting remains changed if lifecycle control fails; an error
+reports that setting. Autostart refers to service supervisor startup, not an
+Android reboot or process-survival guarantee.
+.PP
+.B manage server is-enabled
+shows Enabled (exit 0) or Disabled (exit 1), or lowercase scalar output in raw
+mode. Missing or unsafe state is an error.
+.PP
+.B manage server logs [--lines N] [--follow]
+reads $HOME/.local/share/codex-remote/log/current. --lines/-n selects 1 through
+10000 lines (default 100); --follow/-f follows rotation until Ctrl+C.
+Only existing logs are read; no additional recording or service action occurs.
+.PP
+.B manage server check
+reports runit status and validates the private token, authenticated WebSocket
+upgrade, and rejection without authentication. It needs Node but no selected
+Codex runtime; it launches no Codex client and never prints the token.
+Success does not verify account health. Lifecycle/status/autostart/logs/help
+need no Node, npm, or Codex.
+.PP
+.B manage server help
+shows command and option help. --help/-h also works after a subcommand.
+All server operations except help accept --backend runit|managed. The managed backend
+supports only start/status/stop; its start requires --auth and accepts --port.
+Runit rejects those options because auth/port belong to the service definition.
+.PP
+The fixed service is codex-remote under absolute $SVDIR, or $PREFIX/var/service
+when SVDIR is empty/unset. Its directory must be owned and not a symlink.
+Existing down markers must be owned regular files, not symlinks; disabling
+never overwrites their content. No service installation, global supervisor
+start, script rewrite, credential change, or migration is implicit.
+.SH RUNIT CONNECTIONS
+.B connect [--backend runit|managed] [--chatgpt] [--] [CODEX_ARGUMENTS...]
+selects the configured backend; leading --backend and --chatgpt can appear in
+either order before Codex arguments or the optional wrapper delimiter.
+Runit requires --chatgpt. Ordinary launches are never rerouted.
+The endpoint is ws://127.0.0.1:4511; runit_port or CODEX_TERMUX_RUNIT_PORT
+can override the port. The token is $HOME/.local/share/codex-remote/token.
+The directory and regular token file must be owner-only and not symlinks.
+No proxy or service is started by connect. Authentication is checked before
+launch; failure never falls back. Keep server/client Codex versions aligned;
+this backend has no managed runtime fingerprint.
+.SH LEGACY MANAGED APP SERVER
+.B manage server start --backend managed --auth inherited|chatgpt [--port N]
 starts an opt-in detached app server and native Node DNS/CONNECT proxy.
 Only 127.0.0.1 with capability-token authentication is supported. The default
 port is temporary; external port 4500 is reserved and rejected.
 This is a WebSocket workaround, not a repair of the upstream Unix-socket daemon.
 .PP
-.B manage server status
+.B manage server status --backend managed
 verifies the live supervisor, authenticated WebSocket upgrade and unauthenticated
 rejection, and reports auth/runtime identity. This does not verify account health.
-.B manage server stop
+.B manage server stop --backend managed
 asks the verified supervisor to stop its own server and proxy, even if the
 selected runtime is missing. Stop ends active server work.
 .PP
-.B connect [--chatgpt] [--] [CODEX_ARGUMENTS...]
+.B connect --backend managed [--chatgpt] [--] [CODEX_ARGUMENTS...]
 connects to the managed instance, including resume and fork arguments.
 Preserves argument boundaries, cwd (overridable with --cd/-C), terminal streams,
 exit status and interrupt continuation. Rejects forwarded --remote,
@@ -110,7 +171,7 @@ there does not suppress the default cwd. Ordinary launches are never rerouted.
 .PP
 The inherited mode retains start-time credentials and requires matching
 OPENAI_API_KEY, CODEX_API_KEY and CODEX_ACCESS_TOKEN presence/values on connect.
-The chatgpt mode removes these variables, and requires connect --chatgpt.
+The chatgpt mode removes these variables, and requires connect --backend managed --chatgpt.
 A client cannot change server authentication. Saved auth remains Codex-controlled.
 Other provider environment/config changes require an explicit restart after work
 finishes; dynamic custom-provider credential switching is unsupported.
@@ -161,6 +222,12 @@ Explicit maintenance commands remain available.
 .B \-\-wrapper-color auto|always|never
 Select output color. Automatic color honors NO_COLOR and terminal detection.
 .TP
+.B \-\-wrapper-output auto|pretty|raw
+Select human report layout. Auto formats terminal streams except TERM=dumb
+and preserves existing redirected contracts. Pretty forces layout without
+forcing color. Raw bypasses formatting and wrapper colors/banners even when
+color or banner is always. JSON and literal protocols are never formatted.
+.TP
 .B \-\-wrapper-banner auto|always|never
 Control the responsive ASCII header.
 .TP
@@ -172,6 +239,41 @@ Ignore the configuration file.
 .TP
 .B \-\-wrapper-debug
 Emit fixed wrapper events on stderr without argument values or credentials.
+.SH OUTPUT STYLE AND COMPLETION
+Root and server help share responsive banner controls, bold cyan branding,
+bold magenta headings, bold green command rows, bold yellow option rows,
+and white descriptions. Help rows use two-space indentation and a minimum
+27-column label field. Package help uses the same roles with compact branding.
+.PP
+Automatic color is disabled for redirected output, TERM=dumb, or NO_COLOR.
+Explicit always forces human-output color even in those cases; never disables
+it unless output is explicitly raw. Package --color and --output can override
+the wrapper's effective settings. NO_COLOR retains readable report layout.
+stdout and stderr detect their terminals independently.
+.PP
+Human reports use compact headings and aligned label/value rows, stacked below
+60 columns. Success/active states are green, warnings/inactive states yellow,
+and failures red; status words also convey their meaning without color.
+Service reports retain native details and producer exit codes, including
+unknown formats. Logs highlight leading timestamps and severity fields without
+filtering, truncating, or reordering messages. Pretty logs remove incoming ANSI
+SGR styling before applying the wrapper palette. Consecutive logger/Codex
+timestamps, including underscore timestamps, are retained. Other terminal
+controls remain visible escapes; literal backslash text is not decoded.
+Raw mode preserves original bytes, including unterminated lines.
+Following logs preserves rotation and Ctrl+C/TERM cleanup without service control.
+.PP
+JSON, configuration examples, emitted completion scripts, version scalars,
+internal helper data, and forwarded Codex streams remain literal. Config show
+uses readable rows in pretty mode and literal key/value lines in raw mode.
+Raw service/log output and automatic redirected service/log output preserve
+native bytes. Top-level status/doctor remain Codex-owned output.
+.PP
+Bash and Zsh completion respect an explicitly supplied server backend. With no
+explicit backend they offer the applicable union, because completion never
+reads configuration or performs runtime/service discovery. Zsh describes
+backend-only options. Server/connect completion omits already-used single-use
+options, including short/long aliases, and stops at forwarding boundaries.
 .SH PACKAGE INSTALLATION
 Run install.sh from a built checkout for a local installation.
 When no checkout is detected, it downloads published GitHub Release assets.
@@ -189,7 +291,9 @@ Release files are never executed to discover their version.
 .PP
 Package options: \-\-prefix DIR, \-\-source DIR, \-\-remote,
 \-\-version X.Y.Z, \-\-check, \-\-dry-run, \-\-repair,
-\-\-recover, \-\-yes, and \-\-color auto|always|never.
+\-\-recover, \-\-yes, \-\-color auto|always|never, and \-\-output auto|pretty|raw.
+Standalone tools honor CODEX_TERMUX_OUTPUT but do not read wrapper config.
+Delegated tools inherit the wrapper mode unless explicitly overridden.
 The prefix must already exist and be owned by the current user.
 .PP
 Confirmation reads /dev/tty even when the script itself is piped from curl
@@ -209,8 +313,9 @@ It is literal data, never sourced or evaluated. Use absolute literal paths.
 Precedence is wrapper prefix options, environment, configuration, defaults.
 .PP
 Keys: auto_update=ask|notify|off, update_interval=86400,
-color=auto|always|never, banner=auto|always|never,
-proxy_connect_timeout=10000, proxy_allow, codex_bin, and ca_bundle.
+color=auto|always|never, banner=auto|always|never, output=auto|pretty|raw,
+proxy_connect_timeout=10000, proxy_allow, codex_bin, ca_bundle,
+connect_backend=runit|managed (default runit), and runit_port=4511.
 The interval is seconds; connection timeout is milliseconds.
 .PP
 auth_notice=auto|off controls post-session token-expiry notices.
@@ -239,6 +344,17 @@ sharing one log limit detection. Existing errors can predate a successful login.
 Explicit auth-check reports unavailable logs without a login-health conclusion.
 .SH ENVIRONMENT
 .TP
+.B SVDIR
+Absolute services directory; defaults to $PREFIX/var/service.
+The server commands target its codex-remote directory.
+.TP
+.B CODEX_TERMUX_CONNECT_BACKEND
+Select runit or managed for management and connections; --backend overrides it.
+.TP
+.B CODEX_TERMUX_RUNIT_PORT
+Existing loopback endpoint port for runit connections/checks; default 4511.
+This does not change the service definition.
+.TP
 .B PREFIX
 Termux installation prefix; package tools install below this prefix by default.
 .TP
@@ -264,6 +380,10 @@ Successful npm metadata lifetime, from 3600 through 2592000 seconds.
 .TP
 .B CODEX_TERMUX_COLOR, CODEX_TERMUX_BANNER
 Override wrapper color/header modes.
+.TP
+.B CODEX_TERMUX_OUTPUT
+Override human output mode (auto, pretty, raw). Wrapper --wrapper-output or
+package --output takes precedence. The default is auto.
 .TP
 .B CODEX_TERMUX_PROXY_CONNECT_TIMEOUT
 TCP connection-establishment deadline, 1000 through 120000 milliseconds.
@@ -311,6 +431,8 @@ bash uninstall.sh
 .fi
 .SH EXIT STATUS
 Core success returns 0, operational failure 1, and wrapper usage errors 2.
+Runit lifecycle/status commands preserve sv exit codes. is-enabled returns
+1 when disabled; check returns nonzero on supervision or authentication failure.
 A started Codex command preserves its exit status. Package no-ops and declined
 confirmations return 0. Package operational errors return 1, usage errors 2.
 Auth-check returns 0 for no matching saved evidence, 1 for expiry evidence,
@@ -328,16 +450,3 @@ Native Termux behavior must be checked on the user's device.
 .BR wget (1)
 .PP
 https://github.com/5nik7/codex-termux
-
-.SH RUNIT CONNECTIONS
-Set connect_backend=runit in wrapper configuration, or use
-CODEX_TERMUX_CONNECT_BACKEND=runit, to select the existing codex-remote service.
-The default backend is managed. Runit requires connect --chatgpt.
-The endpoint is ws://127.0.0.1:4511; runit_port or CODEX_TERMUX_RUNIT_PORT
-can override the port. The token is $HOME/.local/share/codex-remote/token.
-The directory and regular token file must be owner-only and not symlinks.
-No proxy or service is started by connect. Authentication is checked before
-launch; failure never falls back. Keep server/client Codex versions aligned;
-this backend has no managed runtime fingerprint.
-Use sv to manage the service. manage server continues to target the legacy
-managed instance. No service installation, auth change, or migration is implicit.

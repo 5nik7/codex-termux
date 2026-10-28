@@ -3,7 +3,162 @@
 set -Eeuo pipefail
 umask 077
 
-readonly PACKAGE_TOOL_VERSION=0.4.1
+# Shared human presentation, embedded at build time. Bash and normal utilities only.
+ui_output=${CODEX_TERMUX_OUTPUT:-auto} ui_color=${CODEX_TERMUX_COLOR:-auto} ui_width=80
+ui_pretty() {
+  [[ $ui_output == pretty || ( $ui_output == auto && -t ${1:-1} && ${TERM:-dumb} != dumb ) ]]
+}
+ui_colored() {
+  [[ $ui_output != raw && ( $ui_color == always || ( $ui_color == auto && -t ${1:-1} && -z ${NO_COLOR+x} && ${TERM:-dumb} != dumb ) ) ]]
+}
+ui_size() {
+  local rows tty_fd width=${COLUMNS:-0}
+  [[ $width =~ ^[0-9]{1,4}$ ]] || width=0
+  if ((width == 0)) && [[ -t ${1:-1} ]] && command -v stty >/dev/null 2>&1; then
+    # Save the terminal descriptor before process substitution replaces stdout.
+    exec {tty_fd}<&"${1:-1}"
+    read -r rows width < <(stty size <&"$tty_fd" 2>/dev/null) || width=0
+    exec {tty_fd}<&-
+  fi
+  ui_width=$((width > 0 ? width : 80))
+}
+ui_escape() {
+  UI_TEXT=$1
+  if [[ $UI_TEXT == *[[:cntrl:]]* ]]; then
+    local i ch code escaped='' value=$UI_TEXT
+    for ((i=0; i<${#value}; i++)); do
+      ch=${value:i:1}
+      if [[ $ch == [[:cntrl:]] ]]; then
+        printf -v code '%d' "'$ch"
+        printf -v ch '\\x%02x' "$code"
+      fi
+      escaped+=$ch
+    done
+    UI_TEXT=$escaped
+  fi
+}
+ui_span() {
+  local fd=$1 role=$2 text=$3 sgr=''
+  case $role in
+    brand|info) sgr='1;36' ;; heading) sgr='1;35' ;; success|command) sgr='1;32' ;;
+    warning|option) sgr='1;33' ;; error) sgr='1;31' ;; muted) sgr=2 ;; *) sgr=37 ;;
+  esac
+  if ui_colored "$fd"; then printf '\033[%sm%s\033[0m' "$sgr" "$text" >&"$fd"
+  else printf '%s' "$text" >&"$fd"; fi
+}
+ui_section() {
+  local fd=$1
+  ui_escape "$2"
+  printf '\n' >&"$fd"; ui_span "$fd" heading "$UI_TEXT"; printf '\n' >&"$fd"
+}
+ui_field() {
+  local fd=$1 label=$2 value=$3 role=${4:-value} padded
+  ui_escape "$label"; label=$UI_TEXT
+  ui_escape "$value"; value=$UI_TEXT
+  ui_size "$fd"
+  if ((ui_width < 60)); then
+    printf '  ' >&"$fd"; ui_span "$fd" info "$label"; printf '\n    ' >&"$fd"
+  else
+    printf -v padded '%-27s' "$label"
+    printf '  ' >&"$fd"; ui_span "$fd" info "$padded"; printf ' ' >&"$fd"
+  fi
+  ui_span "$fd" "$role" "$value"; printf '\n' >&"$fd"
+}
+ui_message() {
+  local fd=$1 role=$2 message=$3 label
+  case $role in success) label=Done ;; warning) label=Warning ;; error) label=Error ;; muted) label=Debug ;; *) label=Info ;; esac
+  ui_escape "$message"
+  ui_span "$fd" "$role" "[$label]"; printf ' ' >&"$fd"
+  ui_span "$fd" value "$UI_TEXT"; printf '\n' >&"$fd"
+}
+ui_log_line() {
+  local line=$1 prefix='' rest role=info level suffix
+  # Normalize only actual SGR styling. Never interpret backslash text or pass
+  # through other terminal controls; ui_escape keeps those visible and inert.
+  local sgr=$'\033''\[[0-9;:]*m'
+  while [[ $line =~ $sgr ]]; do line=${line/"${BASH_REMATCH[0]}"/}; done
+  # Recognize fields only at the start, never severity words inside messages.
+  local stamp='^(@[0-9a-fA-F]{24}|[0-9]{4}-[0-9]{2}-[0-9]{2}[T _][0-9:.]+([Zz]|[+-][0-9:]+)?)([[:space:]]+)(.*)$'
+  ui_escape "$line"; rest=$UI_TEXT
+  while [[ $rest =~ $stamp ]]; do
+    prefix=${BASH_REMATCH[1]}${BASH_REMATCH[3]}; rest=${BASH_REMATCH[4]}
+    ui_span 1 muted "$prefix"
+  done
+  if [[ $rest =~ ^(\[?(TRACE|DEBUG|INFO|WARN|WARNING|ERROR|FATAL)\]?)([[:space:]:]+)(.*)$ ]]; then
+    level=${BASH_REMATCH[1]}; suffix=${BASH_REMATCH[3]}; rest=${BASH_REMATCH[4]}
+    case ${BASH_REMATCH[2]} in TRACE|DEBUG) role=muted ;; WARN|WARNING) role=warning ;; ERROR|FATAL) role=error ;; esac
+    ui_span 1 "$role" "$level"; printf '%s' "$suffix"
+  fi
+  ui_span 1 value "$rest"
+}
+ui_stream() {
+  local kind=$1 fd=$2 row ending state role pid elapsed
+  while :; do
+    row=''; ending=0
+    if IFS= read -r row; then ending=1; elif [[ -z $row ]]; then break; fi
+    case $kind in
+      logs) ui_log_line "$row"; (( ! ending )) || printf '\n' ;;
+      sv)
+        if [[ $row =~ ^(ok:\ )?(run|down): ]]; then
+          state=${BASH_REMATCH[2]}; role=success
+          if [[ $state == down ]]; then state=Stopped; role=warning; else state=Running; fi
+          ui_field 1 State "$state" "$role"
+          if [[ $row =~ \(pid\ ([0-9]+)\)\ ([0-9]+)s ]]; then
+            pid=${BASH_REMATCH[1]}; elapsed=${BASH_REMATCH[2]}
+            ui_field 1 PID "$pid"
+            ui_field 1 Elapsed "$elapsed seconds"
+          fi
+        fi
+        ui_field 1 Details "$row" ;;
+      *)
+        role=warning
+        case $row in fail:*|fatal:*|timeout:*|error:*) role=error ;; esac
+        ui_message "$fd" "$role" "$row" ;;
+    esac
+    ((ending)) || break
+  done
+}
+# Keep producers and presentation filters separately owned/reaped. No temporary
+# recordings; the producer's status is authoritative, including service failures.
+ui_stream_signal() {
+  ui_signal_status=$1
+  trap '' INT TERM HUP
+  local pid
+  for pid in "$ui_producer" "$ui_out_pid" "$ui_err_pid"; do
+    [[ -z $pid ]] || kill -TERM "$pid" 2>/dev/null || true
+  done
+}
+ui_run_stream() {
+  local kind=$1; shift
+  local ui_out_fd ui_err_fd ui_out_pid='' ui_err_pid='' ui_producer ui_signal_status=0 result=0
+  if ui_pretty 1; then exec {ui_out_fd}> >(ui_stream "$kind" 1); ui_out_pid=$!
+  else exec {ui_out_fd}>&1; fi
+  if ui_pretty 2; then exec {ui_err_fd}> >(ui_stream diagnostic 2); ui_err_pid=$!
+  else exec {ui_err_fd}>&2; fi
+  "$@" <&0 >&"$ui_out_fd" 2>&"$ui_err_fd" & ui_producer=$!
+  exec {ui_out_fd}>&-; exec {ui_err_fd}>&-
+  trap 'ui_stream_signal 130' INT
+  trap 'ui_stream_signal 143' TERM
+  trap 'ui_stream_signal 129' HUP
+  wait "$ui_producer" || result=$?
+  if ((ui_signal_status)); then wait "$ui_producer" 2>/dev/null || true; fi
+  ui_producer=''
+  if [[ -n $ui_out_pid ]]; then
+    wait "$ui_out_pid" || true
+    if ((ui_signal_status)); then wait "$ui_out_pid" 2>/dev/null || true; fi
+    ui_out_pid=''
+  fi
+  if [[ -n $ui_err_pid ]]; then
+    wait "$ui_err_pid" || true
+    if ((ui_signal_status)); then wait "$ui_err_pid" 2>/dev/null || true; fi
+    ui_err_pid=''
+  fi
+  (( ! ui_signal_status )) || result=$ui_signal_status
+  trap - INT TERM HUP
+  return "$result"
+}
+
+readonly PACKAGE_TOOL_VERSION=0.4.2
 readonly PACKAGE_DEFAULT_ACTION=uninstall
 readonly PACKAGE_RELEASES=https://github.com/5nik7/codex-termux/releases
 readonly PACKAGE_FORMAT=codex-termux-package-1
@@ -14,15 +169,33 @@ readonly -a PACKAGE_LINKS=(bin/codex-termux share/bash-completion/completions/co
 readonly -a PACKAGE_TARGETS=(codex-termux codex-termux.bash codex-termux.zsh codex-termux.1 README.md CHANGELOG.md config.example LICENSE)
 package_action=$PACKAGE_DEFAULT_ACTION package_prefix=${PREFIX:-} package_source='' package_remote=0
 package_yes=0 package_check=0 package_dry=0 package_repair=0 package_recover=0 package_color=auto
+package_output=${CODEX_TERMUX_OUTPUT:-auto}
 package_requested='' package_version='' package_installed='' package_root='' package_current=''
 package_tmp='' package_lock='' package_transaction='' package_active=0 package_owned=0
 package_reset='' package_cyan='' package_green='' package_yellow='' package_red='' package_dim=''
+package_magenta='' package_white=''
 declare -A package_hashes=()
 
-package_line() { printf '%s\n' "$*"; }
-package_note() { printf '%s[info]%s %s\n' "$package_cyan" "$package_reset" "$*" >&2; }
-package_die() { printf '%s[error]%s %s\n' "$package_red" "$package_reset" "$*" >&2; exit 1; }
-package_usage_error() { printf 'codex-termux package: %s\n' "$*" >&2; exit 2; }
+package_line() {
+  if [[ -n $* && ${package_help_active:-0} != 1 ]] && ui_pretty 1; then
+    local role=info
+    case $* in *completed*|Already*) role=success ;; Cancelled*|*newer*|*No\ *) role=warning ;; esac
+    ui_message 1 "$role" "$*"
+  else printf '%s\n' "$*"; fi
+}
+package_note() {
+  if ui_pretty 2; then ui_message 2 info "$*"
+  else ui_span 2 info '[info]'; printf ' %s\n' "$*" >&2; fi
+}
+package_die() {
+  if ui_pretty 2; then ui_message 2 error "$*"
+  else ui_span 2 error '[error]'; printf ' %s\n' "$*" >&2; fi
+  exit 1
+}
+package_usage_error() {
+  if ui_pretty 2; then ui_message 2 error "$*"; else printf 'codex-termux package: %s\n' "$*" >&2; fi
+  exit 2
+}
 package_valid_version() { [[ $1 =~ ^(0|[1-9][0-9]{0,7})\.(0|[1-9][0-9]{0,7})\.(0|[1-9][0-9]{0,7})$ ]]; }
 package_newer() {
   local -a first second; local i
@@ -34,20 +207,29 @@ package_newer() {
   return 1
 }
 package_style() {
+  case $package_output in auto|pretty|raw) ;; *) package_usage_error '--output requires auto, pretty, or raw' ;; esac
+  ui_output=$package_output; ui_color=$package_color
   case $package_color in auto|always|never) ;; *) package_usage_error '--color requires auto, always, or never' ;; esac
-  if [[ $package_color == always || ( $package_color == auto && -t 1 && -z ${NO_COLOR+x} && ${TERM:-dumb} != dumb ) ]]; then
+  if ui_colored 1; then
     package_reset=$'\e[0m'; package_cyan=$'\e[1;36m'; package_green=$'\e[1;32m'
     package_yellow=$'\e[1;33m'; package_red=$'\e[1;31m'; package_dim=$'\e[2m'
+    package_magenta=$'\e[1;35m'; package_white=$'\e[37m'
   fi
 }
-package_heading() { printf '\n%s< codex (termux) >%s\n%s%s%s\n\n' "$package_cyan" "$package_reset" "$package_dim" "$1" "$package_reset"; }
+package_heading() {
+  if [[ ${package_help_active:-0} != 1 ]] && ui_pretty 1; then ui_section 1 "$1"
+  elif [[ $package_output == raw ]]; then printf '\n%s\n\n' "$1"
+  else printf '\n%s< codex (termux) >%s\n%s%s%s\n\n' "$package_cyan" "$package_reset" "${2:-$package_dim}" "$1" "$package_reset"; fi
+}
 package_row() {
+  if [[ ${package_help_active:-0} != 1 ]] && ui_pretty 1; then ui_field 1 "$1" "$2"; return; fi
   local label_color=$package_green
   [[ $1 != --* && $1 != -h* ]] || label_color=$package_yellow
-  printf '  %s%-15s%s %s\n' "$label_color" "$1" "$package_reset" "$2"
+  printf '  %s%-27s%s %s%s%s\n' "$label_color" "$1" "$package_reset" "$package_white" "$2" "$package_reset"
 }
 package_help() {
-  package_heading "Wrapper package manager $PACKAGE_TOOL_VERSION"
+  local package_help_active=1
+  package_heading "Wrapper package manager $PACKAGE_TOOL_VERSION" "$package_magenta"
   if [[ $package_action == install ]]; then
     package_row 'Install/update' 'bash install.sh [OPTIONS]'
     package_row '--source DIR' 'Install the built local checkout/source bundle.'
@@ -62,7 +244,8 @@ package_help() {
   package_row '--prefix DIR' 'Existing owned prefix; defaults to Termux $PREFIX.'
   package_row '--dry-run' 'Show the proposed operation without changing the prefix.'
   package_row '--yes' 'Explicitly authorize installation/removal/recovery.'
-  package_row '--color MODE' 'auto | always | never (also honors NO_COLOR).'
+  package_row '--color MODE' 'auto | always | never (auto honors NO_COLOR).'
+  package_row '--output MODE' 'auto | pretty | raw (default auto).'
   package_row '-h, --help' 'Show this help.'
   package_line ''
   if [[ $package_action == install ]]; then
@@ -77,7 +260,8 @@ package_confirm() {
   if ! { exec {fd}<>/dev/tty; } 2>/dev/null; then
     package_die 'a terminal is required for confirmation; use --yes only after reviewing the operation'
   fi
-  printf '%s%s [y/N]%s ' "$package_yellow" "$1" "$package_reset" >&"$fd"
+  if ui_pretty "$fd"; then ui_escape "$1"; ui_span "$fd" warning "$UI_TEXT [y/N] "
+  else printf '%s%s [y/N]%s ' "$package_yellow" "$1" "$package_reset" >&"$fd"; fi
   IFS= read -r answer <&"$fd" || answer=''
   exec {fd}>&-
   [[ $answer == y || $answer == Y || $answer == yes || $answer == YES ]]
@@ -321,7 +505,8 @@ package_apply_install() {
   mv -fT -- "$temp" "$package_root/current"
   rm -- "$package_root/pending"
   package_active=0
-  printf '\n%s[done]%s codex-termux %s installed.\n' "$package_green" "$package_reset" "$package_version"
+  if ui_pretty 1; then ui_message 1 success "codex-termux $package_version installed."
+  else printf '\n%s[done]%s codex-termux %s installed.\n' "$package_green" "$package_reset" "$package_version"; fi
   package_line "Backups retained: $package_transaction"
   package_line 'Next: codex-termux --help | man codex-termux'
   package_line 'Fresh Termux: codex-termux setup, then codex-termux login'
@@ -333,7 +518,8 @@ package_apply_uninstall() {
   rm -- "$package_root/current"
   rm -- "$package_root/pending"
   package_active=0
-  printf '\n%s[done]%s Wrapper command, completions, manual, and documentation links removed.\n' "$package_green" "$package_reset"
+  if ui_pretty 1; then ui_message 1 success 'Wrapper command, completions, manual, and documentation links removed.'
+  else printf '\n%s[done]%s Wrapper command, completions, manual, and documentation links removed.\n' "$package_green" "$package_reset"; fi
   package_line 'Codex npm runtimes, credentials, configuration, and shell startup are unchanged.'
   package_line "Recovery copies and package history retained: $package_root"
 }
@@ -348,13 +534,14 @@ package_main() {
     case $flag in
       --yes) package_yes=1 ;; --check) package_check=1 ;; --dry-run) package_dry=1 ;;
       --repair) package_repair=1 ;; --recover) package_recover=1 ;; --remote) package_remote=1 ;;
-      --source|--prefix|--version|--color)
+      --source|--prefix|--version|--color|--output)
         (($#)) && [[ -n $1 ]] || package_usage_error "$flag requires a value"
         case $flag in
           --source) package_source=$1; source_explicit=1 ;;
           --prefix) package_prefix=$1; prefix_explicit=1 ;;
           --version) package_requested=$1; package_remote=1 ;;
-          --color) package_color=$1 ;;
+          --color) package_color=$1; ui_color=$1 ;;
+          --output) package_output=$1; ui_output=$1 ;;
         esac; shift ;;
       *) package_usage_error 'unknown package option' ;;
     esac
@@ -362,7 +549,7 @@ package_main() {
   (( ! source_explicit || ! package_remote )) || package_usage_error '--source cannot be combined with --remote/--version'
   (( ! package_check || (! package_repair && ! package_yes && ! package_recover && ! package_dry) )) || package_usage_error '--check cannot be combined with mutation options'
   if [[ $package_action == uninstall ]]; then
-    (( ! source_explicit && ! package_remote && ! package_repair && ! package_check && ! package_recover )) || package_usage_error 'uninstall accepts only --prefix, --dry-run, --yes, and --color'
+    (( ! source_explicit && ! package_remote && ! package_repair && ! package_check && ! package_recover )) || package_usage_error 'uninstall accepts only --prefix, --dry-run, --yes, --color, and --output'
   fi
   (( ! package_recover || (! source_explicit && ! package_remote && ! package_repair && ! package_check) )) || package_usage_error '--recover cannot install or download a package'
   [[ -z $package_requested ]] || package_valid_version "$package_requested" || package_usage_error '--version must be X.Y.Z'

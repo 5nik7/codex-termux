@@ -3,7 +3,7 @@
 Preserve the working native Termux DNS/proxy solution and existing CLI behavior.
 This standalone wrapper is separate from the dots CLI and its Go roadmap.
 
-- Edit `src/frontend.sh`, `src/runtime.cjs`, `src/package.sh`, `completions/`, and
+- Edit `src/frontend.sh`, `src/ui.sh`, `src/runtime.cjs`, `src/package.sh`, `completions/`, and
   `man/codex-termux.1.in`; regenerate with `python3 tools/build.py`. `VERSION` is
   authoritative. Never edit generated bin/install/uninstall/man files directly.
 - Keep startup independent of npm/network discovery. Help/wrapper version must
@@ -40,6 +40,15 @@ This standalone wrapper is separate from the dots CLI and its Go roadmap.
   Termux/Android testing. No native phone login/support claims without evidence.
 - Update README, CHANGELOG, completion/help, and validation evidence when their
   contracts change. Run focused existing tests to address concrete risks.
+- For every CLI change, apply the repository
+  [CLI consistency skill](.agents/skills/codex-termux-cli-consistency/SKILL.md)
+  and [maintenance guide](docs/CLI_MAINTENANCE.md). Reconcile behavior, output
+  styling, usage/help, manual, completion, config examples, and current docs
+  together. Review related flags/subcommands for retain/update/deprecate/remove;
+  deprecate published interfaces with migration guidance before removing them.
+- Use shared presentation helpers for human reports and maintain the
+  [output coverage matrix](docs/OUTPUT.md). Pretty service/log views are allowed;
+  raw output, literal machine protocols, Codex streams, and exit codes stay intact.
 - Rebuild the manifest after changing any payload, including README/CHANGELOG.
   Keep `SHA256SUMS` (11 allowed payloads) distinct from `RELEASE-SHA256SUMS`
   (also source archives). Preserve historical evidence under docs/history/.

@@ -9,6 +9,38 @@ const net = require('node:net');
 const crypto = require('node:crypto');
 const cp = require('node:child_process');
 
+// Context belongs only to this helper. Never pass it to Codex/npm/workers.
+const display = {
+  output: process.env.CODEX_TERMUX_UI_OUTPUT || 'auto',
+  color: process.env.CODEX_TERMUX_UI_COLOR || 'auto',
+  columns: Number(process.env.CODEX_TERMUX_UI_COLUMNS || process.stdout.columns || 80),
+};
+for (const key of ['CODEX_TERMUX_UI_OUTPUT', 'CODEX_TERMUX_UI_COLOR', 'CODEX_TERMUX_UI_COLUMNS']) delete process.env[key];
+const uiRoles = { brand:'1;36', info:'1;36', heading:'1;35', success:'1;32', command:'1;32', warning:'1;33', option:'1;33', error:'1;31', muted:'2', value:'37' };
+const uiStream = fd => fd === 2 ? process.stderr : process.stdout;
+const uiPretty = (fd = 1) => display.output === 'pretty' ||
+  (display.output === 'auto' && !!uiStream(fd).isTTY && process.env.TERM !== 'dumb' && !!process.env.TERM);
+const uiEscape = text => String(text).replace(/[\x00-\x1f\x7f-\x9f]/g, c => '\\x'+c.charCodeAt(0).toString(16).padStart(2,'0'));
+function uiSpan(fd, role, text) {
+  const colored = display.output !== 'raw' && (display.color === 'always' ||
+    (display.color === 'auto' && uiStream(fd).isTTY && !Object.hasOwn(process.env,'NO_COLOR') && process.env.TERM && process.env.TERM !== 'dumb'));
+  return colored ? `\x1b[${uiRoles[role] || uiRoles.value}m${text}\x1b[0m` : text;
+}
+function uiField(fd, label, value, role = 'value') {
+  const stacked = Number.isFinite(display.columns) && display.columns > 0 && display.columns < 60;
+  uiStream(fd).write('  '+uiSpan(fd,'info',uiEscape(label).padEnd(stacked ? 0 : 27))+
+    (stacked ? '\n    ' : ' ')+uiSpan(fd,role,uiEscape(value))+'\n');
+}
+function uiReport(title, fields) {
+  process.stdout.write('\n'+uiSpan(1,'heading',uiEscape(title))+'\n');
+  for (const [label,value,role] of fields) uiField(1,label,value,role);
+}
+function humanLine(message, role = 'info', fd = 1, raw = message) {
+  if (!uiPretty(fd)) { uiStream(fd).write(raw+'\n'); return; }
+  const label = {success:'Done',warning:'Warning',error:'Error',muted:'Debug',command:'Run'}[role] || 'Info';
+  uiStream(fd).write(uiSpan(fd,role,`[${label}]`)+' '+uiSpan(fd,'value',uiEscape(message))+'\n');
+}
+
 const REGISTRY = 'https://registry.npmjs.org';
 const VERSION = /^(0|[1-9]\d{0,7})\.(0|[1-9]\d{0,7})\.(0|[1-9]\d{0,7})$/;
 const RUNTIME = /^v\d+\.\d+\.\d+-[a-f0-9]{16}$/;
@@ -135,11 +167,9 @@ function authAdvice(server) {
     : ['An MCP request reported an expired authentication token.', 'If the failed server is codex_apps, refresh ChatGPT sign-in:'];
 }
 function printAuthAdvice(server) {
-  for (const line of authAdvice(server)) console.error(`codex-termux: ${line}`);
-  console.error('  codex-termux logout');
-  console.error('  codex-termux login');
-  console.error('  codex-termux chatgpt');
-  if (!server) console.error('codex-termux: For another MCP server, use its authentication flow.');
+  for (const line of authAdvice(server)) humanLine(line, 'warning', 2, `codex-termux: ${line}`);
+  for (const command of ['logout', 'login', 'chatgpt']) humanLine(`codex-termux ${command}`, 'command', 2, `  codex-termux ${command}`);
+  if (!server) humanLine('For another MCP server, use its authentication flow.', 'info', 2, 'codex-termux: For another MCP server, use its authentication flow.');
 }
 function selection(data) {
   try {
@@ -580,13 +610,13 @@ async function serverWorker(active) {
 async function managedServer(args) {
   const [operation, data, wrapper, version, auth, portText, allow, timeout, ca, ...command] = args;
   const location = serverRoot(data), { root, active, home } = location;
-  if (operation === 'status') console.log(`Instance: ${root}`);
+  if (operation === 'status' && !uiPretty()) console.log(`Instance: ${root}`);
   if (operation === 'start') {
     const runtime = runtimeIdentity(command, version);
     const port = Number(portText);
     if (!['inherited', 'chatgpt'].includes(auth) || !Number.isInteger(port) || port < 0 || port > 65535 || port === 4500) serverFail('Invalid server auth mode or port (4500 is reserved for external use)');
     try { fs.mkdirSync(active, { mode: 0o700 }); }
-    catch (_) { serverFail('Instance already exists or startup is concurrent; use manage server status; surviving state requires review'); }
+    catch (_) { serverFail('Instance already exists or startup is concurrent; use manage server status --backend managed; surviving state requires review'); }
     const id = crypto.randomBytes(16).toString('hex');
     let launched = false;
     try {
@@ -613,13 +643,18 @@ async function managedServer(args) {
           if (live.state.id !== id) serverFail('Started instance ended and was replaced; inspect status before connecting');
           const proof = await controlRequest(live.state, live.secret, 'status');
           if (!proof.ready || proof.closing) serverFail('Server left ready state during startup; inspect status');
-          console.log(`Server started: ws://127.0.0.1:${live.state.port} | Codex ${version} | auth ${auth}`);
-          console.log(`Instance: ${root}`);
-          console.log('Authentication is retained from server start; clients do not replace it.'); return;
+          if (uiPretty()) uiReport('Managed server started', [
+            ['State','Running','success'], ['Endpoint',`ws://127.0.0.1:${live.state.port}`],
+            ['Codex',version], ['Authentication',auth], ['Instance',root]]);
+          else {
+            console.log(`Server started: ws://127.0.0.1:${live.state.port} | Codex ${version} | auth ${auth}`);
+            console.log(`Instance: ${root}`);
+          }
+          humanLine('Authentication is retained from server start; clients do not replace it.'); return;
         } catch (e) { if (e.code !== 'ENOENT') throw e; }
         await delay(100);
       }
-      serverFail('Supervisor startup outcome unknown; state retained; inspect manage server status');
+      serverFail('Supervisor startup outcome unknown; state retained; inspect manage server status --backend managed');
     } catch (error) {
       if (!launched) {
         for (const name of ['launch.json', 'worker.cjs', 'control.token', 'ws.token']) {
@@ -631,8 +666,12 @@ async function managedServer(args) {
     }
   }
   if (!entryExists(active)) {
-    if (operation === 'status' || operation === 'stop') { console.log(`Server stopped. Instance: ${root}`); return; }
-    serverFail('No managed server; use manage server start --auth inherited or --auth chatgpt');
+    if (operation === 'status' || operation === 'stop') {
+      if (uiPretty()) uiReport('Managed server', [['State','Stopped','warning'],['Instance',root]]);
+      else console.log(`Server stopped. Instance: ${root}`);
+      return;
+    }
+    serverFail('No managed server; use manage server start --backend managed --auth inherited or --auth chatgpt');
   }
   const { state, secret, token } = readServer(active);
   // Verify the complete live record before sending a destructive request or
@@ -643,7 +682,7 @@ async function managedServer(args) {
     const until = Date.now() + 6500;
     while (entryExists(active) && Date.now() < until) await delay(100);
     if (entryExists(active)) serverFail('Stop incomplete; recovery state retained');
-    console.log('Managed server and proxy stopped.'); return;
+    humanLine('Managed server and proxy stopped.', 'success'); return;
   }
   if (!live.ready || live.closing) serverFail('Managed server is not ready: starting, stopping, or recovery required');
   await authenticatedServer(state.port, token);
@@ -651,9 +690,17 @@ async function managedServer(args) {
   try { selected = runtimeIdentity(command, version); } catch (_) { selected = null; }
   const matches = JSON.stringify(selected) === JSON.stringify(state.runtime);
   if (operation === 'status') {
-    console.log(`Server running: ws://127.0.0.1:${state.port} | authenticated WebSocket verified`);
-    console.log(`Auth: ${state.auth} (start-time environment); Codex ${state.runtime.version}; runtime ${state.runtime.digest.slice(0, 16)}`);
-    console.log(`Selected runtime: ${selected ? 'Codex ' + selected.version + '; ' : ''}${matches ? 'matches' : 'MISMATCH or unavailable; connect refused; stop explicitly before restarting'}`);
+    if (uiPretty()) uiReport('Managed server status', [
+      ['State','Running','success'], ['Endpoint',`ws://127.0.0.1:${state.port}`],
+      ['WebSocket','Authenticated; account health not checked','success'],
+      ['Authentication',`${state.auth} (start-time environment)`], ['Codex',state.runtime.version],
+      ['Runtime',state.runtime.digest.slice(0,16)], ['Instance',root],
+      ['Selected runtime',`${selected ? 'Codex '+selected.version+'; ' : ''}${matches ? 'matches' : 'MISMATCH or unavailable; connect refused; stop explicitly before restarting'}`, matches ? 'success' : 'error']]);
+    else {
+      console.log(`Server running: ws://127.0.0.1:${state.port} | authenticated WebSocket verified`);
+      console.log(`Auth: ${state.auth} (start-time environment); Codex ${state.runtime.version}; runtime ${state.runtime.digest.slice(0, 16)}`);
+      console.log(`Selected runtime: ${selected ? 'Codex ' + selected.version + '; ' : ''}${matches ? 'matches' : 'MISMATCH or unavailable; connect refused; stop explicitly before restarting'}`);
+    }
     if (!matches) process.exitCode = 1;
     return;
   }
@@ -681,11 +728,29 @@ async function runitConnect(directory, portText) {
     await authenticatedServer(port, token);
     return token;
   } catch (_) {
-    throw new Error('Runit connection refused: check sv status codex-remote, port, and private token permissions; no managed-server fallback');
+    throw new Error('Runit connection refused: check manage server status --backend runit, port, and private token permissions; no managed-server fallback');
   }
 }
 
 async function main(args) {
+  if (args[0] === 'proxy' || args[0] === 'server-worker') display.output = 'raw';
+  if (args[0] === 'dns-test') {
+    await new Promise(resolve => {
+      const timer = setTimeout(() => { humanLine('DNS timed out','error',2); process.exit(1); }, 10000);
+      require('node:dns').lookup('auth.openai.com', (error, address, family) => {
+        clearTimeout(timer);
+        if (error) { humanLine('DNS failed','error',2); process.exitCode=1; }
+        else humanLine(`DNS OK (IPv${family})`, 'success');
+        resolve();
+      });
+    });
+    return;
+  }
+  if (args[0] === 'runit-check') {
+    await runitConnect(args[1], args[2]);
+    humanLine('Authenticated WebSocket ready; account health is not checked.', 'success');
+    return;
+  }
   if (args[0] === 'runit-connect') {
     // Internal pipe to the frontend only; never include this in diagnostics.
     process.stdout.write(await runitConnect(args[1], args[2]));
@@ -740,11 +805,11 @@ async function main(args) {
     if (option === 'json') console.log(JSON.stringify(result));
     else {
       if (result.status === 'expired_token_logged') {
-        console.log(`Saved MCP token-expiry error: ${result.recorded_at}`);
+        humanLine(`Saved MCP token-expiry error: ${result.recorded_at}`, 'warning');
         printAuthAdvice(result.server);
-      } else if (result.status === 'no_match') console.log('No matching expired-token error in the scanned log tail.');
-      else console.log('Auth diagnostic log unavailable; no authentication conclusion.');
-      console.log('Saved log evidence only; current authentication was not verified.');
+      } else if (result.status === 'no_match') humanLine('No matching expired-token error in the scanned log tail.');
+      else humanLine('Auth diagnostic log unavailable; no authentication conclusion.', 'warning');
+      humanLine('Saved log evidence only; current authentication was not verified.');
     }
     process.exitCode = result.status === 'expired_token_logged' ? 1 : result.status === 'unavailable' ? 3 : 0;
     return;
@@ -762,12 +827,12 @@ async function main(args) {
     const [data, arch, requested, npm] = rest;
     const meta = await metadata(requested, arch);
     const result = await install(data, meta, { npm });
-    console.log(`Activated Codex ${result.version}. Previous runtime retained.`); return;
+    humanLine(`Activated Codex ${result.version}. Previous runtime retained.`, 'success'); return;
   }
   if (action === 'rollback') {
     const [data, system] = rest;
     const result = await rollback(data, system);
-    console.log(`Activated previous Codex runtime (${result.version}).`); return;
+    humanLine(`Activated previous Codex runtime (${result.version}).`, 'success'); return;
   }
   fail('unknown internal operation');
 }
@@ -775,5 +840,5 @@ module.exports = { stable, newer, privateDir, readRegular, atomic, selection, me
   cleanEnv, probe, validatePackage, install, rollback, allowHosts, authority, proxy,
   authLogSnapshot, authLogEvidence, checkAuthLog, websocketCheck, authenticatedServer, runitConnect, main };
 if (require.main === module || module.id === '[stdin]') {
-  main(process.argv.slice(2)).catch(error => { process.stderr.write(`codex-termux: ${error.message}\n`); process.exitCode = 1; });
+  main(process.argv.slice(2)).catch(error => { humanLine(error.message, 'error', 2, `codex-termux: ${error.message}`); process.exitCode = 1; });
 }

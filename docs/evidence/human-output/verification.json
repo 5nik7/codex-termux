@@ -1,0 +1,148 @@
+{
+  "recorded_at": "2026-10-28T20:57:26.645253+00:00",
+  "base_commit": "1e0815f210d1cdd083b6fefff77e9fa148bde552",
+  "branch": "main",
+  "wrapper_version": "0.4.1",
+  "environment": {
+    "platform": "Android-15-aarch64-64bit-ELF",
+    "architecture": "aarch64",
+    "termux_version": "0.119.0-beta.3",
+    "python": "3.14.8",
+    "node": "v26.12.1",
+    "bash": "GNU bash, version 5.3.20(1)-release (aarch64-unknown-linux-android)",
+    "zsh": "zsh 5.9.2 (aarch64-unknown-linux-android)",
+    "runit_packages": "runit\t2.3.1\ntermux-services\t0.13-1"
+  },
+  "full_verifier": {
+    "command": "python3 -B tools/verify.py",
+    "exit_code": 0,
+    "tests": 129,
+    "suites": {
+      "runtime": 18,
+      "wrapper": 33,
+      "server": 22,
+      "runit": 14,
+      "presentation": 9,
+      "package": 29,
+      "release": 4
+    },
+    "log": "verify.md",
+    "scope": "Before the two final review regressions and corrections.",
+    "wrapper_sha256": "8772905666ea760806a8d1d63a296c76a27e909386c99b17224f760c12620d0c"
+  },
+  "final_focused": {
+    "exit_code": 0,
+    "tests": 27,
+    "suites": {
+      "presentation": 11,
+      "runit": 14,
+      "managed_presentation": 1,
+      "package_output": 1
+    },
+    "log": "final-focused.md"
+  },
+  "review_corrections": [
+    {
+      "issue": "Interrupt during formatter draining could return success after producer exit",
+      "evidence": "review-regressions.md",
+      "resolution": "Track the signal through all waits and clear/reap owned child identities."
+    },
+    {
+      "issue": "Node reports used a default width when COLUMNS was unset; shared detector lost terminal stdout during process substitution",
+      "evidence": [
+        "review-regressions.md",
+        "width-investigation.md"
+      ],
+      "resolution": "Duplicate the terminal descriptor before querying stty and pass the detected width to Node."
+    }
+  ],
+  "public_interfaces": {
+    "wrapper_output": [
+      "auto",
+      "pretty",
+      "raw"
+    ],
+    "environment": "CODEX_TERMUX_OUTPUT",
+    "configuration": "output=auto",
+    "package_output": "--output",
+    "precedence": "CLI > environment > config > auto; package tools inherit wrapper mode unless overridden"
+  },
+  "compatibility": {
+    "literal_channels": [
+      "JSON",
+      "config example",
+      "completion scripts",
+      "version scalars",
+      "internal token/URL/port/version exchanges",
+      "background workers",
+      "Codex and external-tool streams"
+    ],
+    "raw_service_and_log_bytes": true,
+    "producer_exit_codes": true,
+    "raw_config_show_added_key": "output",
+    "retained": [
+      "color",
+      "banner",
+      "backend",
+      "managed auth/port options"
+    ],
+    "removed": []
+  },
+  "evidence": {
+    "preview": "previews.md",
+    "real_owned_runit_tests": 3,
+    "prior_evidence_files": 35,
+    "prior_evidence_changed": 0
+  },
+  "limitations": [
+    "Full verifier predates final review corrections; final focused evidence is separate",
+    "groff unavailable; manual rendering skipped",
+    "No native Linux, hosted CI, installed-wrapper or real-account acceptance",
+    "No live service, auth/config, installation, publication or version changes"
+  ],
+  "final_checks": "final-checks.md",
+  "final_checks_result": {
+    "exit_code": 0,
+    "release_tests": 4,
+    "release_seconds": 6.508,
+    "docs_links": 90,
+    "installed_payloads": 11,
+    "skill_valid": true,
+    "generated_files_match": true,
+    "git_diff_check": true
+  },
+  "source_sha256": {
+    "VERSION": "f62184cee8787f2f6941c82041a5725d4edc9aa293ebe5dbf664406e82ec1fe1",
+    "AGENTS.md": "64bba04ef3d257bc63d5c0f4c1e118ae622bc72f4f2fa8bba41cfe1dcfbef3c7",
+    "README.md": "79372a5f84264992ea6f17417ef3b60dcca973778366c6818ae68e0ac880288a",
+    "CHANGELOG.md": "639329919def8f603ce3ac1cb71458b278d308a187413fcb8d7ab3d6d3de71b4",
+    "RELEASING.md": "820965fe563664dea5dcf59df933e83b82b63a325121bfa68c32c7955ce0cf67",
+    "VALIDATION.md": "f6295067ebdd22ab94e293b01c1b6cd6da5f7c29e9518a7ddb55840cb2af999c",
+    "config.example": "5fb1875391ac3a1a1143c177b3caa027940e72542334598942048a9853a79164",
+    "docs/CLI_MAINTENANCE.md": "f1913322a98cde425799cc3b0d72f7248b95910f3b4295498cfebad06a7aa6fd",
+    "docs/OUTPUT.md": "e54bb7429751be0fcba86d773e6d2eb04cd64939d232af9fb8d69b67dc5e38a7",
+    ".agents/skills/codex-termux-cli-consistency/SKILL.md": "fcab58c19c5e239d4b69cf32bf8e0819c4eb74bcb2fbc1d8f0fd28c8d35d911e",
+    "src/ui.sh": "376f533155fac89291008fb3e6b7c91f754ee2bcbc6ee69ac144c78bae9f9f7d",
+    "src/frontend.sh": "668fe5e68d934bd868b5a4bb528fcc154d45cb6870b0f56e5a6ed928c71dc749",
+    "src/package.sh": "ecced109e3a18d22e74221ecf0436e50dd4efd7d8f76c453ab6e9f64d8068b82",
+    "src/runtime.cjs": "8fdc57e8132320f7cbce5d4838fe98ceb55c397ebaf76ed5567de5721a5585c9",
+    "completions/codex-termux.bash": "8c812d5f329064b0fa77fbb1f32bebe6f5da3370ce0ad941545becfc0992ec0f",
+    "completions/_codex-termux": "67dbdf6bfa464a7e6288c7fae87c9ac3b2f864399c257fa91bb56d5d8768bcb9",
+    "man/codex-termux.1.in": "42a2207f248488a8a18a35278e5f3dfb3ce073d8d5ff38a0b4da25c9acaad10d",
+    "bin/codex-termux": "970179ee71ef7d717421f30e9458e6b0af81bd5a7a21fd4eddc67fc041daecb7",
+    "install.sh": "53a59da5c273b395b85340ece674fdf72c9c3932d6658ccceaaf20faba767afe",
+    "uninstall.sh": "fb39ac3c26766a53e3832685968b54191d7408e6f10cbc832808e425234577ce",
+    "man/codex-termux.1": "df817e19d80b41e096d0d7ba65e0f4754cd10ab91023d57e2ac9172bf586d8d6",
+    "PACKAGE-SHA256SUMS": "798d25344dd5f984653ef4db7e7aa37ce12847a756e34cb4d45312c0fc6ecb50",
+    "tests/test_wrapper.py": "905ee683456767f5084e640c4b8d00d49101ccb6acb1225959c20059ec8b6465",
+    "tests/test_server.py": "8068a9db5b7998fca3423a9bd69f324b3aed8527a917f1f9f4d7a9fa0a39eee3",
+    "tests/test_package.py": "ba8376e98fe84d73a2593cd89fea9332a885cfebf3c889e4abdff8135f7a3aaf",
+    "tests/test_release.py": "646f5d3493a28a839578e6cd1df60488c6235593d34dba52aee48ddcdc26c549",
+    "tests/test_runit.py": "0dc8c866cca7a18027c3c6cd5ef78997b9dd33ce9677d5979e648401b361887c",
+    "tests/test_presentation.py": "35e2093ffe47a881c1882648ee48d31579886d94cff4905cc4c341109f23bd76",
+    "tools/verify.py": "39bfbc74f056688760da4be15456c0db63272469e80144fb8ff36805565e2dc3",
+    "tools/build.py": "ec1bfdb91a30d96565db8bc0c5cd746538a16f46431928e9c0a53070cb269917",
+    "tools/release.py": "084eaf847ae09766e97d497fd72372c85923a8b67d9d288900c485407438fce3",
+    "tools/check_docs.py": "e92871fb7bd3d75c5856fe880daae9e95cec0da5a14c50a435f2665cd6e77447"
+  }
+}

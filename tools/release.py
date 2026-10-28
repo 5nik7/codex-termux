@@ -21,16 +21,18 @@ def source_files():
              'VALIDATION.md', 'LICENSE', 'VERSION', 'config.example',
              'PACKAGE-SHA256SUMS', 'install.sh', 'uninstall.sh',
              'bin/codex-termux', 'completions/codex-termux.bash', 'completions/_codex-termux'}
-    for directory in ['src', 'man', 'tools', 'tests', 'docs', '.github/workflows']:
+    for directory in ['src', 'man', 'tools', 'tests', 'docs', '.github/workflows', '.agents/skills']:
         base = ROOT / directory
-        if base.is_symlink():
+        if any(parent.is_symlink() for parent in [base, *base.parents] if parent != ROOT and ROOT in parent.parents):
             raise SystemExit('Refusing symlink source directory: ' + directory)
         for file in base.rglob('*'):
             if any(part.startswith('.') for part in file.relative_to(base).parts):
                 continue
+            if file.is_symlink():
+                raise SystemExit('Refusing symlink source entry: ' + str(file.relative_to(ROOT)))
             # A version directory such as 0.3.1 has a .1 suffix like a manual.
-            # Skip real directories; selected symlinks still fail validation below.
-            if file.is_dir() and not file.is_symlink():
+            # Skip directories after rejecting symlinks above.
+            if file.is_dir():
                 continue
             if file.name == 'SHA256SUMS' or file.suffix in {'.sh', '.cjs', '.py', '.md', '.json', '.log', '.yml', '.yaml', '.1', '.in'}:
                 names.add(file.relative_to(ROOT).as_posix())
