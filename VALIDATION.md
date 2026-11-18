@@ -1,5 +1,88 @@
 # Validation: codex-termux
 
+## 0.4.4 release verification — 2026-11-18 UTC
+
+A fresh `python3 -B tools/verify.py` run passed **137 tests**: 18 runtime,
+34 wrapper, 22 server, 14 runit, 13 presentation, 32 package, and 4 release
+tests. No tests skipped or deadlines increased. This includes all three new
+manual/index regressions, actual Bash/Zsh completion, 37 command contexts /
+150 completion queries, generated freshness, syntax, and source archives.
+The earlier development timeouts below remain historical; this release run
+passed with the original limits.
+
+See the [full verifier transcript](docs/evidence/0.4.4/verify.md),
+[environment and source hashes](docs/evidence/0.4.4/verification.json), and
+[published-version migration](docs/evidence/0.4.4/migration.md). The migration
+fixture uses the published 0.4.3 installer, upgrades through its installed
+wrapper to 0.4.4, and repairs through the newly installed helper. `man` and
+`whatis` then have no warnings; all 11 payload hashes match, and old payloads,
+public links, and unrelated manuals remain intact.
+
+Compatibility review retains all commands, flags, config keys, forwarding
+boundaries, public links, and the single atomic package pointer. `--repair`
+descriptions and documentation explain the index refresh and the one-time
+repair after upgrading with a pre-0.4.4 bundled helper. Fresh installs through
+the new installer use the corrected layout directly. The native regression
+requires mandoc-backed tools so it does not assume GNU man emits mandoc errors.
+
+These are native Android ARM64/Termux results with owned temporary roots and
+fake credentials, including real sv/runsv fixtures. Native mandoc rendering is
+verified; local groff is unavailable and hosted CI checks it separately.
+All 49 pre-existing history/evidence files are preserved byte-for-byte.
+Release preparation does not change the live wrapper, runtime, service,
+credentials, or shell startup. The manifests remain 11 package payloads and
+14 release entries, producing 15 release assets.
+
+## Unreleased manual indexing fix — 2026-11-18 UTC
+
+The installed manual previously resolved outside `share/man`, so Termux's
+mandoc skipped it even after rebuilding the index. New installations retain
+each immutable manual in `share/man/.codex-termux-VERSION.XXXXXXXX/` and link
+the versioned package payload to it. The public link still goes through the
+single `current` pointer. Install, repair, uninstall, and transaction recovery
+refresh the optional manual index. Index errors do not undo committed package
+changes; substituted indexes and unfinished index builds are preserved.
+
+The native mandoc regression passed in a focused run and in the first full
+verifier attempt. It reproduces the old warning, repairs at the same version,
+checks successful and failed upgrades, verifies uninstall removes the index
+entry, and preserves an unrelated manual and old manual payloads. The two new
+failure/symlink-index tests also passed in that full attempt. Tests use owned
+temporary prefixes, including paths with spaces and Unicode.
+
+The full `python3 -B tools/verify.py` attempt passed 18 runtime, 34 wrapper,
+22 server, 14 runit, and 13 presentation tests. Of 32 package tests, 31 passed;
+`test_state_subdirectory_symlink_is_refused_before_chmod` hit its existing
+12-second limit during its initial fixture install. The verifier stopped
+before its release and documentation stages. A package-only retry passed 20
+tests and timed out in 12 fixture operations. Separately, 3 of 4 release tests
+passed; the extracted-source installation hit its existing 8-second limit.
+No deadlines were increased. A traced disposable install completed successfully
+in 13.7 seconds; the largest trace gaps were ordinary filesystem operations.
+These results do **not** constitute a clean full-suite pass.
+
+Build freshness, shell/Node syntax, actual Bash/Zsh completion, all 37 completion
+contexts / 150 queries, documentation links (92 local targets), and whitespace
+checks pass. Native Termux `man` rendering is verified; this is not a hosted
+Linux or groff result. Historical release/evidence files are preserved.
+
+The user's installed 0.4.3 package was repaired from this checkout with
+`install.sh --source ... --repair --yes`. Plain `man codex-termux`,
+`man -w codex-termux`, and `whatis codex-termux` each exit 0 with empty stderr.
+All 11 installed payload checksums pass. The public manual symlink and its
+mtime are unchanged; the prior `releases/0.4.3.QV5ABAOm` payload is retained.
+The selected payload is `releases/0.4.3.2nK0waok`, with recovery snapshots in
+`$PREFIX/libexec/codex-termux/backups/tx.Gjs06Iae`. No pending package transaction
+or package lock remains. Live services, credentials, runtime selection, and
+shell startup were not changed.
+
+Compatibility review: retain every command, option, backend, config key,
+passthrough boundary, and public link. Update the `--repair` help/description,
+manual layout, optional index maintenance, README, changelog, and output matrix.
+Bash completion tokens and configuration examples remain applicable; only the
+Zsh description changes. The package manifest remains 11 payloads. VERSION
+remains 0.4.3 for this local repair; no release was tagged, pushed, or published.
+
 ## 0.4.3 release verification — 2026-11-18 UTC
 
 Version 0.4.3 packages the completion grouping update recorded below. A fresh

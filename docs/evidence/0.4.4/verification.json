@@ -1,0 +1,55 @@
+{
+  "version": "0.4.4",
+  "date_utc": "2026-11-18",
+  "base_commit": "c76da8c3ae1422f51bb09bba2bf206b628b0c587",
+  "platform": "Android-15-aarch64-64bit-ELF",
+  "machine": "aarch64",
+  "scope": "Native Android ARM64/Termux; owned fixtures and fake credentials; no live-account acceptance or live installation during release preparation.",
+  "tools": {
+    "python3": "Python 3.14.10",
+    "node": "v26.13.1",
+    "bash": "GNU bash, version 5.3.20(1)-release (aarch64-unknown-linux-android)",
+    "zsh": "zsh 5.9.2 (aarch64-unknown-linux-android)",
+    "sv": "/data/data/com.termux/files/usr/bin/sv",
+    "runsv": "/data/data/com.termux/files/usr/bin/runsv",
+    "groff": null,
+    "mandoc": "/data/data/com.termux/files/usr/bin/mandoc",
+    "makewhatis": "/data/data/com.termux/files/usr/bin/makewhatis"
+  },
+  "command": "python3 -B tools/verify.py",
+  "result": "passed",
+  "tests": {
+    "runtime": 18,
+    "wrapper": 34,
+    "server": 22,
+    "runit": 14,
+    "presentation": 13,
+    "package": 32,
+    "release": 4,
+    "total": 137,
+    "skipped": 0
+  },
+  "completion_audit": {
+    "command_contexts": 37,
+    "queries": 150
+  },
+  "manual_rendering": {
+    "mandoc": "Verified through native installed-name regression and published-0.4.3 upgrade/repair fixture.",
+    "groff": "Unavailable locally; hosted workflows install groff."
+  },
+  "legacy_upgrade": "Published 0.4.3 helper update followed by installed 0.4.4 helper repair passed; all 11 assets match.",
+  "historical_files_preserved": 49,
+  "sha256": {
+    "VERSION": "175307e07ac7f0bdc0f3dba371ba3a202aaf3c0117368a93d2331e1bea4af4f3",
+    "src/frontend.sh": "668fe5e68d934bd868b5a4bb528fcc154d45cb6870b0f56e5a6ed928c71dc749",
+    "src/ui.sh": "d206f802b71129e9530d013e8f537d5234801342f39f0f3945c27a94e20c8c6e",
+    "src/runtime.cjs": "8fdc57e8132320f7cbce5d4838fe98ceb55c397ebaf76ed5567de5721a5585c9",
+    "src/package.sh": "d36d19d129ad603ebd0a3e5cb5bca9ab005d21f8067a235dd40e517993573e0d",
+    "completions/codex-termux.bash": "8c812d5f329064b0fa77fbb1f32bebe6f5da3370ce0ad941545becfc0992ec0f",
+    "completions/_codex-termux": "c391e588af79e0e6c03214c12abb6273ec1f73d7668435e8674a7370f8a2dac4",
+    "man/codex-termux.1.in": "54aaf658bc93817005ca3a78f519b07de3d5058434a570576b8d6c7439dd9993",
+    "tests/test_package.py": "f706d127da9529cdd74f1760eba0b90f9de5d23e08974c33a747f8e312cf9d46",
+    "bin/codex-termux": "84ed5c2e9b2a733db5807673f79f9738f3e5f21bd9c8a2343bdfc08e0e8ec479",
+    "PACKAGE-SHA256SUMS": "03e0a1d6b58896fa994661ebb3a8d066b1360445dc2cceba9006a32f98a49250"
+  }
+}

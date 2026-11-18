@@ -158,7 +158,7 @@ ui_run_stream() {
   return "$result"
 }
 
-readonly PACKAGE_TOOL_VERSION=0.4.3
+readonly PACKAGE_TOOL_VERSION=0.4.4
 readonly PACKAGE_DEFAULT_ACTION=uninstall
 readonly PACKAGE_RELEASES=https://github.com/5nik7/codex-termux/releases
 readonly PACKAGE_FORMAT=codex-termux-package-1
@@ -236,7 +236,7 @@ package_help() {
     package_row '--remote' 'Use GitHub Releases, even from a checkout.'
     package_row '--version X.Y.Z' 'Select a published stable wrapper release.'
     package_row '--check' 'Compare versions only; do not install.'
-    package_row '--repair' 'Recreate missing managed links at the same version.'
+    package_row '--repair' 'Reinstall this version, repairing links and the manual index.'
     package_row '--recover' 'Restore a pending interrupted package transaction.'
   else
     package_row 'Uninstall' 'bash uninstall.sh [OPTIONS]'
@@ -436,6 +436,22 @@ package_begin() {
   printf '%s\n' "${package_transaction##*/}" >"$package_root/pending"
   package_active=1
 }
+package_refresh_man_index() {
+  local directory=$package_prefix/share/man
+  [[ -d $directory ]] || return 0
+  if ! command -v makewhatis >/dev/null 2>&1; then
+    package_note 'Manual index not refreshed: makewhatis is unavailable.'
+    return 0
+  fi
+  # Do not follow a substituted index or overwrite a surviving index build.
+  if [[ -L $directory/mandoc.db || ( -e $directory/mandoc.db && ( ! -f $directory/mandoc.db || ! -O $directory/mandoc.db ) ) || -e $directory/mandoc.db~ || -L $directory/mandoc.db~ ]]; then
+    package_note 'Manual index not refreshed: retain and review mandoc.db / mandoc.db~.'
+    return 0
+  fi
+  if ! makewhatis "$directory"; then
+    package_note "Manual index refresh failed; retry makewhatis for: $directory"
+  fi
+}
 package_restore() {
   local transaction=$1 i dest before current expected temp
   [[ -d $transaction/links && ! -L $transaction && ! -L $transaction/links ]] || return 1
@@ -464,6 +480,7 @@ package_restore() {
   else rm -f -- "$package_root/current" || return 1; fi
   rm -f -- "$package_root/pending" || return 1
   package_active=0
+  package_refresh_man_index
 }
 package_cleanup() {
   local status=$?
@@ -483,11 +500,18 @@ package_cleanup() {
 }
 package_apply_install() {
   package_begin
-  local version_dir i dest temp
+  local version_dir manual_dir i dest temp
   version_dir=$(mktemp -d "$package_root/releases/$package_version.XXXXXXXX")
   cp -- "$package_tmp/payload/"* "$version_dir/"
   chmod 644 -- "$version_dir/"*
   chmod 755 -- "$version_dir/codex-termux" "$version_dir/install.sh" "$version_dir/uninstall.sh"
+  # mandoc ignores symlinks whose resolved target is outside its man tree.
+  # Keep the immutable manual there, still selected by the single current
+  # pointer. Old manual directories are retained with old package payloads.
+  mkdir -p -- "$package_prefix/share/man"
+  manual_dir=$(mktemp -d "$package_prefix/share/man/.codex-termux-$package_version.XXXXXXXX")
+  mv -- "$version_dir/codex-termux.1" "$manual_dir/codex-termux.1"
+  ln -s -- "$manual_dir/codex-termux.1" "$version_dir/codex-termux.1"
   # Existing installations already have all stable links. Initial adoption also
   # snapshots any standalone wrapper/completion/man files before replacement.
   for i in "${!PACKAGE_LINKS[@]}"; do
@@ -505,6 +529,7 @@ package_apply_install() {
   mv -fT -- "$temp" "$package_root/current"
   rm -- "$package_root/pending"
   package_active=0
+  package_refresh_man_index
   if ui_pretty 1; then ui_message 1 success "codex-termux $package_version installed."
   else printf '\n%s[done]%s codex-termux %s installed.\n' "$package_green" "$package_reset" "$package_version"; fi
   package_line "Backups retained: $package_transaction"
@@ -518,6 +543,7 @@ package_apply_uninstall() {
   rm -- "$package_root/current"
   rm -- "$package_root/pending"
   package_active=0
+  package_refresh_man_index
   if ui_pretty 1; then ui_message 1 success 'Wrapper command, completions, manual, and documentation links removed.'
   else printf '\n%s[done]%s Wrapper command, completions, manual, and documentation links removed.\n' "$package_green" "$package_reset"; fi
   package_line 'Codex npm runtimes, credentials, configuration, and shell startup are unchanged.'
@@ -600,7 +626,7 @@ package_main() {
   package_row Installed "${package_installed:-not installed}"
   package_row Available "$package_version"
   if [[ $package_installed == "$package_version" ]] && (( ! package_repair )); then
-    package_line 'Already at this version. Nothing changed. Use --repair for missing managed links.'; return
+    package_line 'Already at this version. Nothing changed. Use --repair to reinstall links and refresh the manual index.'; return
   fi
   if [[ -n $package_installed && $package_installed != "$package_version" ]] && ! package_newer "$package_version" "$package_installed"; then
     package_line 'Installed version is newer. No downgrade performed.'; return

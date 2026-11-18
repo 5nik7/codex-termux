@@ -54,7 +54,7 @@ mode; explicit package `--output` overrides it. Package `--color` remains separa
 | `manage server is-enabled` | Enabled/Disabled with service name | `enabled` / `disabled`, exits 0 / 1 |
 | `manage server logs` | One header; original lines with timestamp/severity spans | Exact tail bytes; lines/follow/rotation semantics retained |
 | Managed server start/status/stop | State, endpoint, auth mode, runtime match and instance | Existing text and ownership/authentication checks |
-| Package check/install/repair/recover/uninstall | Summaries, file rows, notices, results and controlling-terminal prompts | Existing ownership/confirmation rules; no added Node/Python dependency |
+| Package check/install/repair/recover/uninstall | Summaries, file rows, notices, results and controlling-terminal prompts; optional manual-index refresh diagnostics | Existing ownership/confirmation rules; no added Node/Python dependency; index failures do not fail completed operations |
 | Wrapper errors, warnings and debug events | Severity labels on their existing stream | Existing diagnostic information and exit status |
 | `--wrapper-version`, Codex `--version` | Always scalar/native | Existing version line |
 | `completion bash|zsh` | Always literal | Executable shell source, no presentation escapes |
