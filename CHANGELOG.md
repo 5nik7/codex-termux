@@ -1,5 +1,13 @@
 # Changelog
 
+## 0.4.3 — 2026-11-18
+
+- Give Zsh commands, options and enumerated values distinct standard completion
+  tags, including nested management routes and mixed root/connect menus. Shell
+  preferences can color these groups without changing inserted text.
+- Audit the advertised completion command tree and option contexts automatically,
+  checking semantic tags and Bash/Zsh literal-candidate parity in offline CI.
+
 ## 0.4.2 — 2026-10-28
 
 ### Human CLI reports

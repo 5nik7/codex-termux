@@ -1,14 +1,16 @@
-# codex-termux 0.4.2
+# codex-termux 0.4.3
 
 Run Codex's Linux npm build in **native Termux**, with Android DNS handled by
 native Node.js through a loopback proxy. No proot is required. Foreground
 launches use a temporary proxy; the opt-in managed app server owns its proxy.
 
-Version 0.4.2 makes the existing Termux runit service the default for
-server management and authenticated connections, resume, and fork. Existing
-launch, login, proxy, authentication recovery notices, and package/runtime
-management remain compatible.
-See the [release notes](docs/releases/v0.4.2.md) and
+Version 0.4.3 gives Zsh completion separate command, option, and value groups
+throughout the wrapper command tree, so shell preferences can style them.
+The existing Termux runit service remains the default for server management
+and authenticated connections, resume, and fork. Existing launch, login,
+proxy, authentication recovery notices, and package/runtime management remain
+compatible.
+See the [release notes](docs/releases/v0.4.3.md) and
 [validation](VALIDATION.md) for evidence and remaining limitations.
 
 ## Connect to an existing termux-services server
@@ -294,8 +296,8 @@ separate from the automated fake-account transport tests:
 5. Check Ctrl+C during a request, continuation, normal exit, and server status.
    Then run `manage server stop --backend managed`; status should report stopped.
 
-These acceptance commands do not install the wrapper. Version 0.4.2 includes
-the service-management and human-output changes described above.
+These acceptance commands do not install the wrapper. Version 0.4.3 retains
+the service-management and human-output behavior described above.
 
 ## Install or update the wrapper package
 
@@ -688,6 +690,11 @@ Try `codex-termux man<Tab>` or `codex-termux manage up<Tab>`. The default sectio
 heading uses cyan, with styled descriptions and plain inserted tokens. Existing
 Zsh description styles take precedence; `NO_COLOR` disables the default cyan.
 The completion function does not change global `zstyle` settings.
+Commands, options, and enumerated values use separate standard Zsh tags,
+including nested `manage server` and `manage config` routes. This lets shell
+completion styling, including Dots' semantic completion colors, distinguish
+them while inserted words stay literal. Shell preferences own candidate colors;
+wrapper report color flags do not override the completion menu.
 
 The package installs `_codex-termux` into `$PREFIX/share/zsh/site-functions`.
 Use the existing `fpath`/`compinit` setup if that directory is already registered.

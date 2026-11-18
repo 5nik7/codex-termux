@@ -579,6 +579,82 @@ _codex_termux || true
         self.assertFalse((self.home / '.cache/codex-termux').exists())
 
     @unittest.skipUnless(ZSH, 'Zsh is not installed')
+    def test_zsh_completion_types_cover_command_tree(self):
+        # Walk the provider's command tree, including newly added descendants.
+        # Capture standard Zsh tags without executing any offered operation;
+        # compare inserted words with the independently maintained Bash adapter.
+        zsh = r'''
+source "$COMPLETION"
+_files() { print -r -- $'files\t'; }
+_describe() {
+  local array=$4 entry
+  for entry in "${(@P)array}"; do printf '%s\t%s\n' "$2" "${entry%%:*}"; done
+}
+words=("$@"); CURRENT=${#words}
+_codex_termux || true
+'''
+        bash = r'''
+source "$COMPLETION"
+COMP_WORDS=("$@"); COMP_CWORD=$((${#COMP_WORDS[@]}-1))
+_codex_termux_complete
+printf '%s\n' "${COMPREPLY[@]}"
+'''
+        checked = set()
+
+        def query(args):
+            checked.add(tuple(args))
+            result = subprocess.run([ZSH, '-f', '-c', zsh, 'fixture', 'codex-termux', *args],
+                                    env={**self.env, 'COMPLETION': str(ROOT / 'completions/_codex-termux')},
+                                    cwd=self.home, capture_output=True, text=True, timeout=5)
+            self.assertEqual((result.returncode, result.stderr), (0, ''), args)
+            self.assertNotIn('\x1b', result.stdout)
+            rows = [line.split('\t', 1) for line in result.stdout.splitlines()]
+            self.assertTrue(all(len(row) == 2 and row[0] in {'commands', 'options', 'values', 'files'}
+                                for row in rows), (args, rows))
+            if any(tag == 'files' for tag, _ in rows):
+                return []  # _files retains the shell's own filename handling.
+            rows = [(tag, word) for tag, word in rows if word.startswith(args[-1])]
+            other = subprocess.run([BASH, '--noprofile', '--norc', '-c', bash, 'fixture',
+                                    'codex-termux', *args],
+                                   env={**self.env, 'COMPLETION': str(ROOT / 'completions/codex-termux.bash')},
+                                   cwd=self.home, capture_output=True, text=True, timeout=5)
+            self.assertEqual((other.returncode, other.stderr), (0, ''), args)
+            self.assertEqual({word for _, word in rows}, set(filter(None, other.stdout.splitlines())), args)
+            for tag, word in rows:
+                self.assertEqual(tag == 'options', word.startswith('-'), (args, tag, word))
+            return rows
+
+        pending = [()]
+        routes = set()
+        while pending:
+            route = pending.pop()
+            if route in routes:
+                continue
+            self.assertLess(len(route), 5, 'completion must stop at Codex forwarding boundaries')
+            routes.add(route)
+            rows = query([*route, ''])
+            query([*route, '--'])
+            for tag, word in rows:
+                if tag == 'commands':
+                    pending.append((*route, word))
+                elif tag == 'options':
+                    query([*route, word, ''])
+        self.assertTrue({(), ('manage',), ('manage', 'server'), ('manage', 'server', 'start'),
+                         ('manage', 'config', 'show'), ('connect', 'resume')} <= routes)
+        for args in [('--wrapper-color', ''), ('--wrapper-banner', ''), ('--wrapper-output', ''),
+                     ('completion', ''), ('connect', '--backend', ''),
+                     ('manage', 'server', 'start', '--backend', ''),
+                     ('manage', 'server', 'start', '--auth', ''),
+                     ('manage', 'self-update', '--output', ''),
+                     ('manage', 'uninstall', '--color', '')]:
+            rows = query(args)
+            self.assertTrue(rows, args)
+            self.assertEqual({tag for tag, _ in rows}, {'values'}, args)
+        self.assertFalse(self.record.exists())
+        self.assertEqual(list(self.home.iterdir()), [])
+        print(f'Completion audit: {len(routes)} command contexts, {len(checked)} queries.', flush=True)
+
+    @unittest.skipUnless(ZSH, 'Zsh is not installed')
     def test_zsh_completion_candidates_with_real_zsh(self):
         script = r'''
 autoload -Uz compinit

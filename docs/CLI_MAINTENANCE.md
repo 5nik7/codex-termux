@@ -116,6 +116,23 @@ backend, offer the applicable union because configuration is unknown; describe
 backend-only choices in Zsh. Treat short/long aliases as the same single-use
 option. Stop parsing at forwarded commands or wrapper/Codex delimiter boundaries.
 
+Keep command, option, and enumerated-value candidates in standard Zsh
+`commands`, `options`, and `values` tags. Split mixed menus into distinct groups;
+do not label every context as options. Determine values from the parser context,
+keep `_files` for filenames, and preserve literal insertion. Shell completion
+preferences own candidate colors, so adapters must not embed ANSI in candidates,
+require Dots, or change global `zstyle` settings. Existing description styles
+remain authoritative. This applies to root commands and every nested route.
+
+`WrapperTests.test_zsh_completion_types_cover_command_tree` in
+`tests/test_wrapper.py` walks advertised command descendants and each option
+context, checking standard tags and Bash/Zsh literal-candidate parity. It runs
+in the normal offline verifier and CI. Run it and the actual Bash/Zsh PTY tests
+when completion grammar or grouping changes; extend representative value checks
+for new enum contexts. Coverage of the wrapper tree stops at forwarded Codex
+arguments by design. Host-shell menu coloring remains a separate integration
+check; semantic tags alone do not prove a particular theme or fzf-tab renderer.
+
 Keep stock-service output available unchanged through raw mode. Preserve CLI
 boundaries such as Codex-owned `--version`, wrapper-prefixed global flags, and
 `run` escaping reserved command names. A removed wrapper command can otherwise

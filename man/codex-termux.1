@@ -1,4 +1,4 @@
-.TH CODEX-TERMUX 1 "2026-10-28" "codex-termux 0.4.2" "User Commands"
+.TH CODEX-TERMUX 1 "2026-11-18" "codex-termux 0.4.3" "User Commands"
 .SH NAME
 codex-termux \- run and maintain Codex in native Android Termux
 .SH SYNOPSIS
@@ -274,6 +274,10 @@ explicit backend they offer the applicable union, because completion never
 reads configuration or performs runtime/service discovery. Zsh describes
 backend-only options. Server/connect completion omits already-used single-use
 options, including short/long aliases, and stops at forwarding boundaries.
+Zsh separates commands, options, and enumerated values using standard completion
+tags, including nested management routes. The shell's completion preferences
+own candidate colors; inserted words and emitted scripts remain literal.
+The adapter does not change global styles or depend on Dots.
 .SH PACKAGE INSTALLATION
 Run install.sh from a built checkout for a local installation.
 When no checkout is detected, it downloads published GitHub Release assets.

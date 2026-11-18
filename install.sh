@@ -158,7 +158,7 @@ ui_run_stream() {
   return "$result"
 }
 
-readonly PACKAGE_TOOL_VERSION=0.4.2
+readonly PACKAGE_TOOL_VERSION=0.4.3
 readonly PACKAGE_DEFAULT_ACTION=install
 readonly PACKAGE_RELEASES=https://github.com/5nik7/codex-termux/releases
 readonly PACKAGE_FORMAT=codex-termux-package-1
