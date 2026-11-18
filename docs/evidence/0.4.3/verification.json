@@ -1,0 +1,49 @@
+{
+  "version": "0.4.3",
+  "date_utc": "2026-11-18",
+  "base_commit": "92cbd99ec5a618e7438598794db53dc534c2e813",
+  "platform": "Android-15-aarch64-64bit-ELF",
+  "machine": "aarch64",
+  "scope": "Native Android ARM64/Termux; owned fixtures and fake credentials; no live-account acceptance.",
+  "tools": {
+    "python3": "Python 3.14.10",
+    "node": "v26.13.1",
+    "bash": "GNU bash, version 5.3.20(1)-release (aarch64-unknown-linux-android)",
+    "zsh": "zsh 5.9.2 (aarch64-unknown-linux-android)",
+    "sv": "/data/data/com.termux/files/usr/bin/sv",
+    "runsv": "/data/data/com.termux/files/usr/bin/runsv",
+    "groff": null
+  },
+  "command": "python3 -B tools/verify.py",
+  "result": "passed",
+  "tests": {
+    "runtime": 18,
+    "wrapper": 34,
+    "server": 22,
+    "runit": 14,
+    "presentation": 13,
+    "package": 29,
+    "release": 4,
+    "total": 134,
+    "skipped": 0
+  },
+  "completion_audit": {
+    "command_contexts": 37,
+    "queries": 150
+  },
+  "manual_rendering": "Not verified locally: groff unavailable; hosted workflows install groff.",
+  "sha256": {
+    "VERSION": "520a19075780a38b440395e2c70e20d7cddd96b8c2e2c2403b265cbb74a1b333",
+    "src/frontend.sh": "668fe5e68d934bd868b5a4bb528fcc154d45cb6870b0f56e5a6ed928c71dc749",
+    "src/ui.sh": "d206f802b71129e9530d013e8f537d5234801342f39f0f3945c27a94e20c8c6e",
+    "src/runtime.cjs": "8fdc57e8132320f7cbce5d4838fe98ceb55c397ebaf76ed5567de5721a5585c9",
+    "src/package.sh": "ecced109e3a18d22e74221ecf0436e50dd4efd7d8f76c453ab6e9f64d8068b82",
+    "completions/codex-termux.bash": "8c812d5f329064b0fa77fbb1f32bebe6f5da3370ce0ad941545becfc0992ec0f",
+    "completions/_codex-termux": "c3204a34e92ac798c261586040d806e871a5b060542d0844c15e9e871f1b0c1d",
+    "man/codex-termux.1.in": "2244931831effba08706306387970da36e36f6d817f3e08d6f01aae88f804d82",
+    "tests/test_wrapper.py": "c2b605ef8526bd59d5e5c492f974abfd3370daf39b1a198c91c1d5a9661c24cf",
+    "bin/codex-termux": "6aeb52ec921c4b7b88f5177ac79445b8900d6867406cf4bed9d3be1bb2d3397d",
+    "PACKAGE-SHA256SUMS": "4330e5bbf2f40f6187a7a098809ca8e11cfd8750f0d00a35841078d903fb71f3"
+  },
+  "historical_files_preserved": 47
+}

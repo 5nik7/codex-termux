@@ -10,12 +10,13 @@ repository skill and guide in source archives while keeping the installed
 payload allowlist at 11 entries. Preserve historical evidence and record a new
 validation result after changes; prior passing evidence is not a new run.
 
-## Current release: 0.4.2
+## Current release: 0.4.3
 
-Read the [release notes](docs/releases/v0.4.2.md) and
-[current validation](VALIDATION.md). This release includes Termux runit service
-management, human CLI reports, corrected colored-log rendering, and the shared
-CLI consistency workflow. Explicit managed-backend configuration remains valid.
+Read the [release notes](docs/releases/v0.4.3.md) and
+[current validation](VALIDATION.md). This release gives Zsh completion separate
+command, option, and value groups and adds an automatic completion-tree audit.
+Existing service backends, human reports, and literal CLI arguments remain
+compatible.
 
 After finalizing source, documentation, and validation evidence:
 
@@ -24,17 +25,17 @@ python3 tools/build.py
 python3 tools/build.py --check
 python3 -B tools/verify.py
 git diff --check
-python3 -B tools/release.py --tag v0.4.2
+python3 -B tools/release.py --tag v0.4.3
 ```
 
-The builder creates 15 assets in a new `dist/v0.4.2` directory. If it exists,
+The builder creates 15 assets in a new `dist/v0.4.3` directory. If it exists,
 choose a fresh output directory; never overwrite a published version. Verify
 `SHA256SUMS` (11 package payloads) and `RELEASE-SHA256SUMS` (14 entries including
 source archives and the smaller manifest) from the asset directory.
 
 Commit and push the release branch with an explicit source:destination refspec,
 open a PR, and merge only after verification passes. Tag the merged commit
-`v0.4.2` and push that specific tag. The tag workflow verifies the source and
+`v0.4.3` and push that specific tag. The tag workflow verifies the source and
 creates a draft; inspect its notes and all 15 assets, then publish as the latest
 stable release when authorized. Verify public downloads and the installer check
 and dry-run in owned temporary roots. Publication does not install locally.

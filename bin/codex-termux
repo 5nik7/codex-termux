@@ -158,7 +158,7 @@ ui_run_stream() {
 }
 
 readonly PROGRAM=${0##*/}
-readonly WRAPPER_VERSION=0.4.2
+readonly WRAPPER_VERSION=0.4.3
 runtime_dir='' proxy_pid='' child_pid='' proxy_url='' node_bin='' ca_bundle=''
 codex_kind='' codex_launcher='' installed_version='' selected_runtime=system previous_runtime=-
 color=auto banner=auto output=auto auto_update=ask update_interval=86400 proxy_connect_timeout=10000
@@ -616,7 +616,7 @@ function getJSON(url, timeout = 12000) {
       if (error) { req.destroy(); reject(error); } else resolve(value);
       agent.destroy();
     };
-    const req = https.get(url, { agent, headers: { Accept: 'application/json', 'User-Agent': 'codex-termux/0.4.2' } }, res => {
+    const req = https.get(url, { agent, headers: { Accept: 'application/json', 'User-Agent': 'codex-termux/0.4.3' } }, res => {
       if (res.statusCode !== 200) { res.resume(); finish(new Error(`registry returned HTTP ${res.statusCode}`)); return; }
       res.on('data', chunk => {
         total += chunk.length;
@@ -1392,6 +1392,8 @@ _codex_termux() {
   setopt localoptions noshwordsplit extendedglob
   local cur=${words[CURRENT]} prev=${words[CURRENT-1]:-}
   local action='' sub='' word label i=2 j pending backend operation canonical choice
+  local role=commands type array result=1
+  local -a commands_choices options_choices values_choices
   local -A used=()
   local -a choices filtered
   # Styled descriptions stay separate from inserted tokens; honor user styles.
@@ -1411,8 +1413,8 @@ _codex_termux() {
     action=$word; ((i++)); break
   done
   case $prev in
-    --wrapper-color|--wrapper-banner) [[ -z $action ]] || return 1; choices=('auto:Use terminal detection' 'always:Force styling' 'never:Disable styling'); label='display mode' ;;
-    --wrapper-output) [[ -z $action ]] || return 1; choices=('auto:Pretty in terminals' 'pretty:Format human reports' 'raw:Preserve raw output'); label='output mode' ;;
+    --wrapper-color|--wrapper-banner) [[ -z $action ]] || return 1; role=values; choices=('auto:Use terminal detection' 'always:Force styling' 'never:Disable styling'); label='display mode' ;;
+    --wrapper-output) [[ -z $action ]] || return 1; role=values; choices=('auto:Pretty in terminals' 'pretty:Format human reports' 'raw:Preserve raw output'); label='output mode' ;;
     --wrapper-config) [[ -z $action ]] || return 1; _files; return ;;
     *)
       if [[ -z $action ]]; then
@@ -1477,8 +1479,8 @@ _codex_termux() {
                   done
                   (( ${#filtered} )) || return 1
                   case $pending in
-                    --backend) choices=('runit:Termux codex-remote service' 'managed:Legacy Node supervisor') ;;
-                    --auth) choices=('inherited:Keep start-time credentials' 'chatgpt:Remove API credential variables') ;;
+                    --backend) role=values; choices=('runit:Termux codex-remote service' 'managed:Legacy Node supervisor') ;;
+                    --auth) role=values; choices=('inherited:Keep start-time credentials' 'chatgpt:Remove API credential variables') ;;
                     *) return 1 ;;
                   esac
                 else
@@ -1499,8 +1501,8 @@ _codex_termux() {
               case $prev in
                 --prefix|--source) _files -/; return ;;
                 --version) return 1 ;;
-                --output) choices=('auto:Pretty in terminals' 'pretty:Format human reports' 'raw:Preserve raw output'); _describe -t codex-termux-options 'output mode' choices; return ;;
-                --color) choices=('auto:Detect terminal' 'always:Force color' 'never:Disable color'); _describe -t codex-termux-options 'color mode' choices; return ;;
+                --output) choices=('auto:Pretty in terminals' 'pretty:Format human reports' 'raw:Preserve raw output'); _describe -t values 'output mode values' choices; return ;;
+                --color) choices=('auto:Detect terminal' 'always:Force color' 'never:Disable color'); _describe -t values 'color mode values' choices; return ;;
               esac
               if [[ $sub == self-update ]]; then
                 choices=('--check:Compare wrapper versions only' '--dry-run:Preview without installing' '--yes:Authorize installation' '--version:Select wrapper release' '--prefix:Owned install prefix' '--source:Built local source directory' '--remote:Read GitHub Releases' '--repair:Repair missing package links' '--recover:Recover an interrupted transaction' '--color:Select color mode' '--output:Select human output mode' '--help:Show package help')
@@ -1526,14 +1528,14 @@ _codex_termux() {
         done
         label='server connection'
         if [[ -n $pending ]]; then
-          choices=('runit:Termux codex-remote service' 'managed:Legacy Node supervisor')
+          role=values; choices=('runit:Termux codex-remote service' 'managed:Legacy Node supervisor')
         else
           [[ -n ${used[--chatgpt]+yes} ]] || choices+=('--chatgpt:Require ChatGPT-mode server')
           [[ -n ${used[--backend]+yes} ]] || choices+=('--backend:Override configured backend')
           choices+=('--:End wrapper connect options' 'resume:Resume a conversation' 'fork:Fork a conversation')
         fi
       elif [[ $action == completion ]] && ((i == CURRENT)); then
-        label='shell'; choices=('bash:Bash programmable completion' 'zsh:Zsh completion with descriptions')
+        label='shell'; role=values; choices=('bash:Bash programmable completion' 'zsh:Zsh completion with descriptions')
       elif [[ $action == setup ]]; then
         [[ $prev != --version ]] || return 1
         label='setup option'; choices=('--yes:Authorize package installation' '--version:Select exact stable version')
@@ -1542,7 +1544,21 @@ _codex_termux() {
       fi ;;
   esac
   (( ${#choices} )) || return 1
-  _describe -t codex-termux-options "$label" choices -X "${description_format//\%d/$label}"
+  # These are our own static grammar literals. Split mixed command/option
+  # menus and preserve parser-declared values; shell styles own their colors.
+  # Distinct descriptions also keep fzf-tab group identities unambiguous.
+  for choice in "${choices[@]}"; do
+    if [[ $choice == -* ]]; then options_choices+=("$choice")
+    elif [[ $role == values ]]; then values_choices+=("$choice")
+    else commands_choices+=("$choice")
+    fi
+  done
+  for type in commands options values; do
+    array=${type}_choices
+    (( ${(P)#array} )) || continue
+    _describe -t "$type" "$label $type" "$array" -X "${description_format//\%d/$label $type}" && result=0
+  done
+  return $result
 }
 # Works both as an autoloaded _codex-termux file and when sourced after compinit.
 if [[ $ZSH_EVAL_CONTEXT == *:file ]]; then

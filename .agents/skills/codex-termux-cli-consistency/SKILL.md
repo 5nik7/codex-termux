@@ -30,8 +30,11 @@ For each relevant change:
    Human service views may format native results; preserve unknown details and
    producer exit codes. Reconcile the guide's linked output coverage matrix.
 4. Exercise observable behavior and actual shell completion, including rejected
-   combinations and plain-output modes. Regenerate with the existing builder;
-   validate the package manifest, docs/skill links, and source archives.
+   combinations and plain-output modes. Run the completion-tree audit for
+   grammar/group changes; preserve standard command/option/value tags and
+   shell-owned candidate styling as described in the guide. Regenerate with the
+   existing builder; validate the package manifest, docs/skill links, and source
+   archives.
 5. Record the compatibility decisions, checks, skips, and remaining gaps in the
    current validation record. Preserve earlier evidence and distinguish fixtures
    from native service execution and real-account acceptance.

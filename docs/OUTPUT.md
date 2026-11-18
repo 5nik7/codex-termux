@@ -58,6 +58,7 @@ mode; explicit package `--output` overrides it. Package `--color` remains separa
 | Wrapper errors, warnings and debug events | Severity labels on their existing stream | Existing diagnostic information and exit status |
 | `--wrapper-version`, Codex `--version` | Always scalar/native | Existing version line |
 | `completion bash|zsh` | Always literal | Executable shell source, no presentation escapes |
+| Interactive Zsh completion menu | Shell-owned command, option and value styles through standard tags | Literal candidates and insertion; no wrapper report styling or global style changes |
 | Internal URL/token/port/version exchanges and background workers | Always literal | Internal protocols unchanged; no presentation context passed to child processes |
 | `run`, `chatgpt`, `connect`, login/logout, top-level `status`/`doctor`, unknown commands | Wrapper notices only | Codex stdin/stdout/stderr and argument boundaries remain native |
 

@@ -1,5 +1,70 @@
 # Validation: codex-termux
 
+## 0.4.3 release verification — 2026-11-18 UTC
+
+Version 0.4.3 packages the completion grouping update recorded below. A fresh
+`python3 -B tools/verify.py` run passed **134 tests**: 18 runtime, 34 wrapper,
+22 server, 14 runit, 13 presentation, 29 package, and 4 release tests. The
+completion audit passed **37 command contexts and 150 queries**, alongside
+actual Bash/Zsh Tab insertion. No tests skipped. Local `groff` is unavailable,
+so manual rendering remains unverified on this host.
+
+See the [full verifier transcript](docs/evidence/0.4.3/verify.md) and
+[environment, results, and source hashes](docs/evidence/0.4.3/verification.json).
+Generated-file freshness, shell syntax, package checksums, documentation links,
+source archive parity/reproducibility, and the repository skill validator pass.
+The package manifest contains 11 payloads; release output contains 15 assets,
+with 14 entries in the release checksum manifest. All 47 pre-existing files
+under `docs/history/` and `docs/evidence/` are preserved byte-for-byte.
+
+These checks ran natively on Android ARM64/Termux with fake credentials and
+owned temporary roots, including real sv/runsv fixtures. Hosted Linux checks
+and manual rendering are recorded separately in GitHub Actions. This local
+run does not establish host-shell theme rendering or live-account acceptance.
+The installed wrapper, live service, credentials, and shell startup were not
+changed.
+
+Compatibility review: retain every public command, flag, backend filter,
+literal candidate, and forwarding boundary. Update only the internal Zsh tags
+and grouping; shell preferences continue to own candidate colors. No new
+configuration, runtime dependency, or migration is required. README, changelog,
+manual, maintenance guide, output coverage, repository skill, generated files,
+and release notes describe the same completion behavior.
+
+## Unreleased completion types — 2026-11-13 UTC
+
+The Zsh adapter now emits standard `commands`, `options`, and `values` tags,
+with separate groups for mixed root/connect menus. Parser context identifies
+enumerated values; filenames retain `_files`. This makes shell completion color
+preferences usable throughout the wrapper command tree without a Dots dependency
+or ANSI in candidates. The installed 0.4.2 package has not been changed.
+
+The complete local `python3 -B tools/verify.py` run passes **134 tests**: 18
+runtime, 34 wrapper, 22 server, 14 runit, 13 presentation, 29 package, and 4
+release tests. This includes owned real runit services, generated freshness,
+package checksums, source archives, and documentation links. No tests skipped;
+`groff` is unavailable, so the verifier reports manual rendering as unverified.
+This is native Termux fixture evidence, not hosted CI or live-account acceptance.
+
+The automatic tree audit passes **37 command contexts and 150 queries**, comparing
+every observed Zsh candidate set with Bash and checking semantic tags. It rejects
+the original provider from HEAD, whose single `codex-termux-options` tag erased
+these distinctions. Six additional completion tests pass, including generated
+source equality, backend/alias/forwarding cases, and actual Bash/Zsh Tab insertion
+in owned terminals. Build freshness, shell syntax, 90 documentation links, the
+repo skill validator and whitespace checks pass. Tests use temporary roots and
+fake credentials; completing never invokes an offered action or writes to HOME.
+
+Compatibility review: retain all public commands, flags, backend filtering,
+literal candidates, forwarding boundaries, and report/config controls. Update
+the internal Zsh grouping to standard tags; use shell styles for candidate color
+and keep existing description preferences. No installer, runtime, menu launcher,
+or wrapper configuration change is needed. README, manual template, output
+coverage, CLI maintenance guide, repo skill, generated wrapper/manual and package
+manifest are synchronized. Dots/fzf-tab theme rendering is a separate host-shell
+integration check; no live service, shell startup, installed package, publication,
+or account acceptance is implied.
+
 ## 0.4.2 release verification — 2026-10-28 UTC
 
 Version 0.4.2 includes runit service management, human reports, CLI consistency,
