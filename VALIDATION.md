@@ -24,6 +24,12 @@ run does not establish host-shell theme rendering or live-account acceptance.
 The installed wrapper, live service, credentials, and shell startup were not
 changed.
 
+Final review corrected the manual header date to 2026-11-18 and regenerated
+the manual and package checksum. Build freshness, all four archive/release
+tests, documentation links, and whitespace checks passed again after this
+documentation-only correction. The full-run hashes above are retained in the
+evidence record alongside the final manual and manifest hashes.
+
 Compatibility review: retain every public command, flag, backend filter,
 literal candidate, and forwarding boundary. Update only the internal Zsh tags
 and grouping; shell preferences continue to own candidate colors. No new

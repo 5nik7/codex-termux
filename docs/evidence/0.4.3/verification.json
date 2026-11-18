@@ -45,5 +45,19 @@
     "bin/codex-termux": "6aeb52ec921c4b7b88f5177ac79445b8900d6867406cf4bed9d3be1bb2d3397d",
     "PACKAGE-SHA256SUMS": "4330e5bbf2f40f6187a7a098809ca8e11cfd8750f0d00a35841078d903fb71f3"
   },
-  "historical_files_preserved": 47
+  "historical_files_preserved": 47,
+  "post_verification_update": {
+    "change": "Correct the manual header date to 2026-11-18; regenerate the manual and package manifest. Runtime and completion sources are unchanged.",
+    "checks": [
+      "python3 tools/build.py --check",
+      "python3 -B tests/test_release.py: 4 tests passed",
+      "python3 -B tools/check_docs.py: 92 local targets",
+      "git diff --check"
+    ],
+    "sha256": {
+      "man/codex-termux.1.in": "7163ceebb9b8e5d283083e7e89b62b4fb82c91b584f5972108ee7ec1d3abca2e",
+      "man/codex-termux.1": "01791cbd5c421ba711192b2e7e514dd95094e41a0f6963e807121a3faaa5944a",
+      "PACKAGE-SHA256SUMS": "049d624ff185c546e55059cdb9d963d622d2ecc6c9db9550816ed75749e0ff3c"
+    }
+  }
 }
