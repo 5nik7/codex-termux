@@ -107,6 +107,89 @@ class PackageTests(unittest.TestCase):
         self.assertTrue((self.state / old / 'codex-termux').is_file())
         self.assertEqual(public, {name: (os.readlink(self.prefix / name), (self.prefix / name).lstat().st_mtime_ns) for name in LINKS})
 
+    @unittest.skipUnless(shutil.which('makewhatis') and shutil.which('mandoc') and shutil.which('man')
+        and os.path.samefile(shutil.which('man'), shutil.which('mandoc')), 'mandoc-backed man/makewhatis unavailable')
+    def test_manual_lookup_after_legacy_repair_upgrade_rollback_and_uninstall(self):
+        manroot = self.prefix / 'share/man'
+        (manroot / 'man1').mkdir(parents=True)
+        other = manroot / 'man1/unrelated.1'
+        other.write_text('.TH UNRELATED 1\n.SH NAME\nunrelated \\- unrelated manual\n')
+
+        def lookup(name='codex-termux'):
+            return subprocess.run(['man', '-M', str(manroot), name], env=self.env,
+                capture_output=True, text=True, timeout=8)
+
+        def readable(version):
+            result = lookup()
+            self.assertEqual(result.returncode, 0, result.stderr)
+            self.assertEqual(result.stderr, '')
+            rendered = re.sub(r'.\x08', '', result.stdout)
+            self.assertIn('codex-termux ' + version, rendered)
+            self.assertIn('SYNOPSIS', rendered)
+
+        self.install(); readable(VERSION)
+        public = self.prefix / LINKS[3]
+        original_link = os.readlink(public)
+        old_manual = public.resolve()
+        self.assertTrue(old_manual.is_relative_to(manroot))
+
+        # Reproduce the old layout and its warning, then repair at the same version.
+        installed_manual = self.state / 'current/codex-termux.1'
+        contents = installed_manual.read_bytes()
+        installed_manual.unlink(); installed_manual.write_bytes(contents)
+        subprocess.run(['makewhatis', str(manroot)], env=self.env, check=True)
+        self.assertIn('outdated mandoc.db', lookup().stderr)
+        repair = subprocess.run([BASH, str(self.prefix / 'bin/codex-termux'),
+            'manage', 'self-update', '--source', str(self.sources[VERSION]), '--repair', '--yes'],
+            env=self.env, capture_output=True, text=True, timeout=12)
+        self.assertEqual(repair.returncode, 0, repair.stdout + repair.stderr)
+        readable(VERSION)
+        self.assertEqual(os.readlink(public), original_link)
+        self.assertTrue(old_manual.is_file())
+
+        self.inject_mv(self.state / 'current')
+        failed = self.run_tool('--source', str(self.sources[self.next_version]), '--yes')
+        self.assertNotEqual(failed.returncode, 0)
+        readable(VERSION)
+        self.install(self.next_version); readable(self.next_version)
+        selected_manual = public.resolve()
+        result = self.run_tool('--yes', uninstall=True)
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertNotEqual(lookup().returncode, 0)
+        self.assertNotIn('outdated mandoc.db', lookup().stderr)
+        self.assertTrue(selected_manual.is_file())
+        self.assertEqual(lookup('unrelated').returncode, 0)
+        self.assertEqual(lookup('unrelated').stderr, '')
+
+    def test_manual_index_failure_does_not_undo_completed_package_operation(self):
+        tool = self.commands / 'makewhatis'
+        tool.write_text('#!' + BASH + '\nexit 7\n'); tool.chmod(0o755)
+        result = self.install()
+        self.assertIn('Manual index refresh failed', result.stderr)
+        self.assertFalse((self.state / 'pending').exists())
+        result = self.run_tool('--yes', uninstall=True)
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertIn('Manual index refresh failed', result.stderr)
+        self.assertFalse((self.state / 'current').exists())
+
+    def test_manual_index_preserves_symlinks_and_unfinished_index_builds(self):
+        tool = self.commands / 'makewhatis'
+        tool.write_text('#!' + BASH + '\nprintf called >"$HOME/index-called"\n'); tool.chmod(0o755)
+        manroot = self.prefix / 'share/man'; manroot.mkdir(parents=True)
+        outside = self.root / 'outside-index'; outside.write_text('retain index')
+        index = manroot / 'mandoc.db'; index.symlink_to(outside)
+        result = self.install()
+        self.assertIn('retain and review mandoc.db', result.stderr)
+        self.assertEqual(outside.read_text(), 'retain index')
+        self.assertTrue(index.is_symlink())
+        self.assertFalse((self.home / 'index-called').exists())
+        index.unlink()
+        pending = manroot / 'mandoc.db~'; pending.write_text('unfinished index')
+        result = self.install(self.next_version)
+        self.assertIn('retain and review mandoc.db', result.stderr)
+        self.assertEqual(pending.read_text(), 'unfinished index')
+        self.assertFalse((self.home / 'index-called').exists())
+
     def test_older_version_never_downgrades(self):
         self.install(self.next_version); before = snapshot(self.prefix)
         result = self.run_tool('--source', str(self.sources[VERSION]), '--yes')

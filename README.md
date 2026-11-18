@@ -347,7 +347,7 @@ codex-termux manage self-update --check   # wrapper version comparison only
 codex-termux manage self-update          # confirm and update every package file
 codex-termux manage self-update --dry-run
 codex-termux manage self-update --version 0.4.0
-codex-termux manage self-update --repair  # repair missing links at the same version
+codex-termux manage self-update --repair  # reinstall this version; repair links and manual index
 ```
 
 **`manage self-update` updates the wrapper; `manage update` updates Codex npm.**
@@ -368,6 +368,7 @@ For a fresh device, follow it with `codex-termux setup`, as below.
 | `share/bash-completion/completions/codex-termux` | Bash completion |
 | `share/zsh/site-functions/_codex-termux` | Zsh completion |
 | `share/man/man1/codex-termux.1` | Manual |
+| `share/man/.codex-termux-VERSION.XXXXXXXX/` | Retained versioned manual payloads |
 | `share/doc/codex-termux/` | README, changelog, example config, license |
 | `libexec/codex-termux/` | Private package payloads, current pointer, backups |
 
@@ -377,6 +378,32 @@ Initial adoption, missing-link repair, and uninstall affect several entries;
 backups allow recovery if one of those operations fails. Existing files are
 copied without following symlinks. Changed managed entries, symlink destination
 parents, special files, unknown versions, and uncertain ownership are refused.
+
+Each version's manual is stored inside `share/man`, reached through the same
+`current` pointer. This lets Termux's mandoc index the public link; it skips
+symlinks whose final target is outside its manual tree. Install, repair,
+uninstall, and transaction recovery refresh the manual index when `makewhatis`
+is available. An unavailable or failed index refresh is reported without
+undoing a completed package operation. Old manual payloads are retained with
+package history, including after uninstall.
+
+If an older installation reports `outdated mandoc.db lacks codex-termux(1)`,
+update the wrapper to 0.4.4 or later:
+
+```bash
+codex-termux manage self-update
+codex-termux manage self-update --repair
+man codex-termux
+```
+
+Both operations ask for confirmation. The one-time repair is needed when
+updating through the bundled installer from 0.4.3 or earlier: the first command
+installs the new helper, and the second applies its corrected manual layout.
+Fresh installations through the latest installer already use the fixed layout.
+From a built checkout, use
+`bash install.sh --source "$PWD" --repair` to reinstall the same version.
+Rebuilding the index alone cannot repair the old manual layout; the updated
+installer relocates the manual first.
 
 Remote downloads use version-pinned GitHub asset URLs after resolving the latest
 stable version. A strict SHA-256 manifest covers every allowed payload file.

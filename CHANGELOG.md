@@ -1,5 +1,17 @@
 # Changelog
 
+## 0.4.4 — 2026-11-18
+
+- Fix recurring Termux `man codex-termux` index warnings by keeping each
+  version's manual inside the man tree, selected through the existing package
+  pointer. Preserve public links and retained package/manual history.
+- Refresh the optional mandoc index after install, same-version repair,
+  uninstall, and recovery. Index failures leave completed package operations
+  intact; substituted indexes and unfinished index builds are preserved.
+- Document the one-time `manage self-update --repair` after upgrading through
+  the bundled installer from 0.4.3 or earlier; the latest installer applies
+  the fixed layout directly.
+
 ## 0.4.3 — 2026-11-18
 
 - Give Zsh commands, options and enumerated values distinct standard completion

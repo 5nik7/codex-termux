@@ -286,7 +286,8 @@ built source directory. The default destination is Termux's PREFIX.
 .PP
 The installer compares stable numeric wrapper versions. Equal versions exit
 without replacement. An older offered version never downgrades the installation.
-Use \-\-repair to recreate missing managed links at the same version.
+Use \-\-repair to reinstall the same version, repair missing managed links,
+and refresh the manual index.
 .PP
 Payload files are checked against a strict SHA256SUMS manifest. The manifest
 and downloads use HTTPS from the same release; this provides integrity under
@@ -305,6 +306,19 @@ or wget. In an unattended environment an explicit \-\-yes is required.
 .PP
 New payloads are immutable versioned directories. Public symlinks point through
 one current pointer, so normal updates switch all components together.
+Versioned manual payloads live inside share/man so Termux's mandoc can index
+the public manual link. Old manuals remain with retained package history.
+Install, repair, uninstall, and recovery refresh the index when makewhatis
+is available. A skipped or failed index refresh is reported without undoing
+the completed package operation. To fix an older installation's recurring
+outdated mandoc.db warning, use manage self-update to upgrade the wrapper to
+0.4.4 or later. From a built checkout, install.sh \-\-repair reinstalls the same
+version. Rebuilding the old index alone is insufficient.
+When upgrading with the bundled installer from 0.4.3 or earlier, run
+manage self-update \-\-repair once after the update so the new helper applies
+the corrected layout. Fresh installations through the latest installer do not
+need this extra repair.
+.PP
 Initial installation/adoption and uninstallation involve several directory
 entries. An ordinary failure rolls these back using recorded backups.
 After an interrupted transaction, review pending state and use
@@ -414,6 +428,9 @@ Zsh completion link. Reload completion after first installation if needed.
 .TP
 .B $PREFIX/share/man/man1/codex-termux.1
 This manual.
+.TP
+.B $PREFIX/share/man/.codex-termux-VERSION.XXXXXXXX
+Private versioned manual payloads, retained after upgrade and uninstall.
 .TP
 .B $PREFIX/libexec/codex-termux
 Private wrapper package releases, current pointer, and recovery snapshots.
